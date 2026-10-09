@@ -27,13 +27,33 @@ Start **QA Test Tracker** from the Start menu - or, from a build, `dist\QATest.e
 - **On the left:** the projects, their suites and their test cases. A case carries a mark for how it went the last time it was run (✔ passed, ✘ failed, ■ blocked, – skipped).
 - **Test Case** tab: the selected case - key, title, priority, where it is run, preconditions, its steps (what to do / what to expect), notes - and how it went in the runs so far. Change it and press **Save**. **Edit > New Test Case** (Ctrl+N) adds one to the selected suite, with the next free key.
 - **Test Runs** tab: the runs of the selected project.
-  - **New Run...** asks for a name, the build that is tested, who tests, and which suites. The run's cases are fixed when it is made.
+  - **New Run...** asks for a name, the build that is tested, who tests, and which suites. The run's cases are fixed when it is made. For a project that says what it is made of (below), it asks for **the build of each component** - Server, Desktop app, Phone app: its version and when it was built, as its About says - filled in as the run before said, so only what changed is typed.
   - Select a case in the table, work through its steps, then press **Passed**, **Failed**, **Blocked** or **Skipped**. The result is stored at once and the next case that is not run is selected. A failure needs a note saying what happened; the step that failed can be given.
-  - **Show:** filters by result. **Finish** closes a run so that nothing is marked by mistake (**Reopen** takes that back).
+  - **Run Mode** works through the cases that are shown, one at a time and large (below).
+  - **Show:** filters by result, and by whose the cases are: **My cases** are those that were assigned to you in this run. Select cases - several with Ctrl or Shift - and **Assign...** says whose they are; the column **For** shows it. "My cases" that are "Not run" is what is left for you to do.
+  - **Run Failed Again...** makes a new run of the cases that failed or were blocked in this one: each not run, for whom it was, of the same builds. The run it is made from stays as it is.
+  - **Finish** closes a run so that nothing is marked by mistake (**Reopen** takes that back).
   - **Report...** shows the run as a document - what was tested, how it stands, what failed or was blocked with the notes, and every case by suite - to save as HTML or PDF.
 - **File > Import Test Scripts...** reads a file of test scripts. Importing a file again brings its cases up to date and adds none twice: a case is known by its key. Results are never touched by an import.
 - **File > Export Project...** writes a project's cases as such a file.
 - **Edit > Delete...** deletes the selected case, suite or project after a question that says what goes with it.
+- **Edit > Project Components...** says what the selected project is made of, parted by commas - `Server, Desktop app, Phone app` - which is what New Run... then asks the builds of. Factory Inventory's scripts say it themselves; none = a run says one build.
+
+### Run Mode
+
+**Run Mode** on the Test Runs tab opens the cases that are shown - all of the run, or what the filters leave: "My cases", "Not run", "Failed" - one at a time, in large type: what is tested, what has to be there first, and the steps with what to expect. The result is one key:
+
+| Key | |
+| --- | --- |
+| **P** / **F** / **B** / **S** | Passed / Failed / Blocked / Skipped - stored at once, and the next case that is not run comes up |
+| **U** | Not run: takes a result back |
+| **Left** / **Right** | the case before / after |
+| **Ctrl+V** | the picture on the clipboard goes with the result, as a screenshot |
+| **Esc** | in the notes: out of the notes (the keys are letters while you type there); else: close |
+
+It begins at the selected case or, if that one has its result, at the first that has none; at the last one it says that every case has a result. A failure needs a note first, as everywhere.
+
+**Files go with a result**: a screenshot (Win+Shift+S takes one of a part of the screen; then Ctrl+V, or **Paste Screenshot**), or any file - a log - with **Attach File...**. A double click opens one, **Remove File...** takes one away. They are copies, kept in the folder `attachments` beside the database - under the run's number - so on a shared drive everybody sees them; 50 MB a file at most. The run's table counts them (**Files**), the panel names them, the report says where some were attached. Deleting a run or a case deletes its files. **The daily copy of the database does not contain them**: back the folder `attachments` up with whatever backs the shared drive up.
 
 ## The database
 
@@ -78,7 +98,7 @@ Everything here is for a database that several people have open at once - `\\nas
 - **Nobody's work is written over without a word.** A test case counts its changes. If somebody else stored the case while you had it open, Save stores nothing and says who and when; what you typed stays. **Revert** shows their version, **Save Mine Anyway** - there only then - stores yours over theirs. Choosing another case does not lose what could not be saved either: the case stays, with the reason. A case you are not typing in shows what others stored whenever the window comes to the front (View > Refresh, F5, does it at once). Under a case it says who changed it last, and when.
 - **A result says who recorded it**: the name you are logged in to Windows with - or the one you gave as Tester in New Run... the last time - not the name of whoever made the run. File > Where Is the Database? says who you are here.
 - **A share that goes away** - a NAS that sleeps, Wi-Fi that drops - is said in a line at the top of the window. What you see and what you typed stays; the program tries again every few seconds and when you press **Try Again**, and goes on when the database is back. At start, a database that cannot be reached is asked about with **Retry**, not just refused.
-- **An older version in the same database** keeps working: this version adds what it needs (two columns of the test cases) and the older one does not mind. Only the protection above is this version's - an older program still stores over what others stored - so put the same version on every PC.
+- **An older version in the same database** keeps working: this version adds what it needs (some columns, and a table for the files) and the older one does not mind. Only the protection above is this version's - an older program still stores over what others stored - so put the same version on every PC.
 
 ### A copy a day
 
@@ -104,6 +124,7 @@ Folder=D:\QA backups
 {
   "project": "Factory Inventory",
   "description": "...",
+  "components": ["Server", "Desktop app", "Phone app"],
   "suites": [
     { "name": "Parts and stock", "description": "...",
       "cases": [
@@ -142,7 +163,7 @@ Needs the Qt Installer Framework (`C:\Qt\Tools\QtInstallerFramework`; `-Ifw <its
 
 ## Tests
 
-`build\QATestTests.exe` (run by `build.bat`; exit code 0 = every check passed). It checks the configuration file (network paths, relative paths, what is wrong with a file, two programs on one database), the database (cases, steps, runs, results, what is refused, what a delete takes along, import and export), reads every file in `scripts\` to see that it can be imported and that each case has steps that say what to expect, and drives the program's own window offscreen: the tree, a case edited and saved, a run made and worked through, its report. And what a shared database needs: two programs in one file where the second is told that the first stored the case, a database from an older version, the copy of each day and which are kept, a damaged database, a drive letter as the share's name, and the window while the database is away, with somebody else's change, and with File > Use a Shared Database.
+`build\QATestTests.exe` (run by `build.bat`; exit code 0 = every check passed). It checks the configuration file (network paths, relative paths, what is wrong with a file, two programs on one database), the database (cases, steps, runs, results, what is refused, what a delete takes along, import and export), reads every file in `scripts\` to see that it can be imported and that each case has steps that say what to expect, and drives the program's own window offscreen: the tree, a case edited and saved, a run made and worked through, its report. And getting through a run faster: whose a case is, a run of what failed, the build of each component, files that go with a result and what deleting takes of them, and Run Mode worked through - marked, a note asked for, a file attached, a screenshot pasted, the last case. And what a shared database needs: two programs in one file where the second is told that the first stored the case, a database from an older version, the copy of each day and which are kept, a damaged database, a drive letter as the share's name, and the window while the database is away, with somebody else's change, and with File > Use a Shared Database.
 
 ## Layout
 
@@ -155,6 +176,7 @@ Needs the Qt Installer Framework (`C:\Qt\Tools\QtInstallerFramework`; `-Ifw <its
 | `src/mainwindow.*` | The window: the tree, the menus |
 | `src/casepanel.*` | The Test Case tab |
 | `src/runpanel.*` | The Test Runs tab |
+| `src/runmode.*` | Run Mode: a run's cases one at a time, the result on a key, files that go with it |
 | `src/report.*` | A run as an HTML document; saving it as HTML or PDF |
 | `src/main.cpp` | Start-up and the command line |
 | `tests/qatests.cpp` | The tests |

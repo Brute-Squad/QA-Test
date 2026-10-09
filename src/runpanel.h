@@ -6,6 +6,7 @@
 #include <QWidget>
 
 class QComboBox;
+class RunMode;
 class QLabel;
 class QLineEdit;
 class QPlainTextEdit;
@@ -24,6 +25,18 @@ class QTableWidget;
 // failure - the step that failed, and Passed / Failed / Blocked / Skipped /
 // Not Run. A result is stored at once, and the next case that is not run is
 // selected.
+//
+// To get through a run faster:
+// - Run Mode (runmode.h) works through the cases that are shown, one at a
+//   time and large, with the result on one key.
+// - A case of a run can be somebody's: select cases (several with Ctrl or
+//   Shift) and Assign... . "My cases" beside the filter by result shows a
+//   tester their own; "Not run" what is left of them.
+// - Run Failed Again... makes a new run of the cases that failed or were
+//   blocked in this one.
+// - A run says the build of each of the project's components (Server,
+//   Desktop app, Phone app): New Run... asks for each, starting from what the
+//   run before said.
 class RunPanel : public QWidget
 {
     Q_OBJECT
@@ -38,7 +51,17 @@ public:
 
     // Make a run without asking (what New Run... does once its dialog is
     // answered): of those suites, or of every suite when none is named.
-    bool createRun(const QString &name, const QString &build, const QString &tester, const QList<qint64> &suiteIds, QString &error);
+    // `builds`: the build of each component, a line each ("Server: 0.2.0, built ...").
+    bool createRun(const QString &name, const QString &build, const QString &tester, const QList<qint64> &suiteIds, QString &error,
+                   const QString &builds = QString());
+    // A new run of what failed or was blocked in the run that is shown.
+    bool createRerun(const QString &name, QString &error);
+    // The selected cases are that tester's in this run ("" = nobody's).
+    bool assignSelected(const QString &tester, QString &error);
+    // Run Mode on the cases that are shown, beginning at the selected one (nullptr = no run, or none shown).
+    RunMode *openRunMode();
+    // Who is testing here.
+    QString tester() const { return m_tester; }
 
     // The report of the run that is shown, as HTML ("" = no run).
     QString reportHtml();
@@ -57,6 +80,9 @@ private:
     void showSelected();
     void store(const QString &status);
     void askForRun();
+    void askForRerun();
+    void askToAssign();
+    QList<qint64> selectedCaseIds() const;
     void deleteRun();
     void toggleFinished();
     void showReport();
@@ -78,6 +104,12 @@ private:
     QPushButton    *m_report = nullptr;
     QLabel         *m_summary = nullptr;
     QComboBox      *m_filter = nullptr;
+    QComboBox      *m_whose = nullptr;
+    QPushButton    *m_rerun = nullptr;
+    QPushButton    *m_assign = nullptr;
+    QPushButton    *m_mode = nullptr;
+    QLabel         *m_builds = nullptr;
+    QLabel         *m_files = nullptr;
     QTableWidget   *m_table = nullptr;
     QLabel         *m_caseTitle = nullptr;
     QLabel         *m_preconditions = nullptr;

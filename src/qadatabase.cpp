@@ -2,6 +2,7 @@
 
 #include <QDateTime>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QSqlError>
@@ -52,11 +53,25 @@ namespace
         result.failedStep = query.value(9).toInt();
         result.tester     = query.value(10).toString();
         result.executed   = query.value(11).toString();
+        result.assigned   = query.value(12).toString();
+        result.attachments = query.value(13).toInt();
         return result;
     }
 
     const char *const kResultColumns =
-        "r.run_id, r.case_id, s.name, c.key, c.title, c.priority, c.area, r.status, r.notes, r.failed_step, r.tester, r.executed";
+        "r.run_id, r.case_id, s.name, c.key, c.title, c.priority, c.area, r.status, r.notes, r.failed_step, r.tester, r.executed, r.assigned, "
+        "(SELECT COUNT(*) FROM attachments a WHERE a.run_id = r.run_id AND a.case_id = r.case_id)";
+
+    // A file's name as part of another: letters, digits, dots and dashes.
+    QString safeName(const QString &name)
+    {
+        QString safe;
+        for (const QChar character : name.trimmed())
+            safe += character.isLetterOrNumber() || character == QLatin1Char('.') || character == QLatin1Char('-') || character == QLatin1Char('_') ? character : QLatin1Char('-');
+        while (safe.startsWith(QLatin1Char('.')))
+            safe.remove(0, 1);
+        return safe.isEmpty() ? QStringLiteral("file") : safe.right(80);
+    }
 }
 
 QString QaSummary::text() const
@@ -308,6 +323,11 @@ bool QaDatabase::createTables(QString &error)
                        "run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE, case_id INTEGER NOT NULL REFERENCES cases(id) ON DELETE CASCADE, "
                        "status TEXT NOT NULL DEFAULT 'Not run', notes TEXT NOT NULL DEFAULT '', failed_step INTEGER NOT NULL DEFAULT 0, "
                        "tester TEXT NOT NULL DEFAULT '', executed TEXT NOT NULL DEFAULT '', PRIMARY KEY(run_id, case_id))"),
+        QStringLiteral("CREATE TABLE IF NOT EXISTS attachments ("
+                       "id INTEGER PRIMARY KEY AUTOINCREMENT, run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE, "
+                       "case_id INTEGER NOT NULL REFERENCES cases(id) ON DELETE CASCADE, name TEXT NOT NULL, file TEXT NOT NULL, "
+                       "added TEXT NOT NULL, added_by TEXT NOT NULL DEFAULT '')"),
+        QStringLiteral("CREATE INDEX IF NOT EXISTS attachments_of_result ON attachments(run_id, case_id)"),
         QStringLiteral("CREATE INDEX IF NOT EXISTS steps_of_case ON steps(case_id, position)"),
         QStringLiteral("CREATE INDEX IF NOT EXISTS cases_of_suite ON cases(suite_id)"),
     };
@@ -317,7 +337,10 @@ bool QaDatabase::createTables(QString &error)
     // What a database from before does not have yet. (An older program goes on working
     // in the same file: it does not know the columns, and they have their defaults.)
     return addMissingColumn(QStringLiteral("cases"), QStringLiteral("revision"), QStringLiteral("INTEGER NOT NULL DEFAULT 1"), error)
-        && addMissingColumn(QStringLiteral("cases"), QStringLiteral("changed_by"), QStringLiteral("TEXT NOT NULL DEFAULT ''"), error);
+        && addMissingColumn(QStringLiteral("cases"), QStringLiteral("changed_by"), QStringLiteral("TEXT NOT NULL DEFAULT ''"), error)
+        && addMissingColumn(QStringLiteral("results"), QStringLiteral("assigned"), QStringLiteral("TEXT NOT NULL DEFAULT ''"), error)
+        && addMissingColumn(QStringLiteral("runs"), QStringLiteral("builds"), QStringLiteral("TEXT NOT NULL DEFAULT ''"), error)
+        && addMissingColumn(QStringLiteral("projects"), QStringLiteral("components"), QStringLiteral("TEXT NOT NULL DEFAULT ''"), error);
 }
 
 bool QaDatabase::addMissingColumn(const QString &table, const QString &column, const QString &definition, QString &error)
@@ -340,10 +363,10 @@ bool QaDatabase::projects(QList<QaProject> &list, QString &error)
 {
     list.clear();
     QSqlQuery query;
-    if (!exec(QStringLiteral("SELECT id, name, description FROM projects ORDER BY LOWER(name)"), {}, error, &query))
+    if (!exec(QStringLiteral("SELECT id, name, description, components FROM projects ORDER BY LOWER(name)"), {}, error, &query))
         return false;
     while (query.next())
-        list << QaProject { query.value(0).toLongLong(), query.value(1).toString(), query.value(2).toString() };
+        list << QaProject { query.value(0).toLongLong(), query.value(1).toString(), query.value(2).toString(), query.value(3).toString() };
     return true;
 }
 
@@ -356,7 +379,9 @@ bool QaDatabase::addProject(QaProject &project, QString &error)
         return false;
     }
     QSqlQuery query;
-    if (!exec(QStringLiteral("INSERT INTO projects (name, description, created) VALUES (?, ?, ?)"), { project.name, project.description, now() }, error, &query))
+    project.components = componentList(project.components).join(QStringLiteral(", "));
+    if (!exec(QStringLiteral("INSERT INTO projects (name, description, components, created) VALUES (?, ?, ?, ?)"),
+              { project.name, project.description, project.components, now() }, error, &query))
     {
         if (error.contains(QLatin1String("UNIQUE"), Qt::CaseInsensitive))
             error = QStringLiteral("There is a project \"%1\" already.").arg(project.name);
@@ -373,7 +398,8 @@ bool QaDatabase::updateProject(const QaProject &project, QString &error)
         error = QStringLiteral("A project needs a name.");
         return false;
     }
-    if (!exec(QStringLiteral("UPDATE projects SET name = ?, description = ? WHERE id = ?"), { project.name.trimmed(), project.description, project.id }, error))
+    if (!exec(QStringLiteral("UPDATE projects SET name = ?, description = ?, components = ? WHERE id = ?"),
+              { project.name.trimmed(), project.description, componentList(project.components).join(QStringLiteral(", ")), project.id }, error))
     {
         if (error.contains(QLatin1String("UNIQUE"), Qt::CaseInsensitive))
             error = QStringLiteral("There is a project \"%1\" already.").arg(project.name.trimmed());
@@ -384,7 +410,20 @@ bool QaDatabase::updateProject(const QaProject &project, QString &error)
 
 bool QaDatabase::deleteProject(qint64 id, QString &error)
 {
-    return exec(QStringLiteral("DELETE FROM projects WHERE id = ?"), { id }, error);
+    const QStringList files = attachmentFiles(QStringLiteral("run_id IN (SELECT id FROM runs WHERE project_id = ?)"), { id });
+    if (!exec(QStringLiteral("DELETE FROM projects WHERE id = ?"), { id }, error))
+        return false;
+    removeFiles(files);
+    return true;
+}
+
+QStringList QaDatabase::componentList(const QString &components)
+{
+    QStringList list;
+    for (const QString &part : components.split(QLatin1Char(',')))
+        if (!part.trimmed().isEmpty() && !list.contains(part.trimmed(), Qt::CaseInsensitive))
+            list << part.trimmed();
+    return list;
 }
 
 // ---- suites ----------------------------------------------------------------------------------------
@@ -448,7 +487,11 @@ bool QaDatabase::updateSuite(const QaSuite &suite, QString &error)
 
 bool QaDatabase::deleteSuite(qint64 id, QString &error)
 {
-    return exec(QStringLiteral("DELETE FROM suites WHERE id = ?"), { id }, error);
+    const QStringList files = attachmentFiles(QStringLiteral("case_id IN (SELECT id FROM cases WHERE suite_id = ?)"), { id });
+    if (!exec(QStringLiteral("DELETE FROM suites WHERE id = ?"), { id }, error))
+        return false;
+    removeFiles(files);
+    return true;
 }
 
 // ---- cases -----------------------------------------------------------------------------------------
@@ -601,7 +644,11 @@ bool QaDatabase::saveCase(QaCase &testCase, QString &error, bool overwrite)
 
 bool QaDatabase::deleteCase(qint64 id, QString &error)
 {
-    return exec(QStringLiteral("DELETE FROM cases WHERE id = ?"), { id }, error);
+    const QStringList files = attachmentFiles(QStringLiteral("case_id = ?"), { id });
+    if (!exec(QStringLiteral("DELETE FROM cases WHERE id = ?"), { id }, error))
+        return false;
+    removeFiles(files);
+    return true;
 }
 
 QString QaDatabase::nextKey(qint64 suiteId)
@@ -645,7 +692,7 @@ bool QaDatabase::history(qint64 caseId, QList<QaResult> &list, QStringList &runN
     while (query.next())
     {
         list << resultOf(query);
-        runNames << query.value(12).toString();
+        runNames << query.value(14).toString();
     }
     return true;
 }
@@ -656,7 +703,7 @@ bool QaDatabase::runs(qint64 projectId, QList<QaRun> &list, QString &error)
 {
     list.clear();
     QSqlQuery query;
-    if (!exec(QStringLiteral("SELECT id, project_id, name, build, tester, started, finished, notes FROM runs WHERE project_id = ? ORDER BY started DESC, id DESC"),
+    if (!exec(QStringLiteral("SELECT id, project_id, name, build, tester, started, finished, notes, builds FROM runs WHERE project_id = ? ORDER BY started DESC, id DESC"),
               { projectId }, error, &query))
         return false;
     while (query.next())
@@ -670,6 +717,7 @@ bool QaDatabase::runs(qint64 projectId, QList<QaRun> &list, QString &error)
         run.started = query.value(5).toString();
         run.finished = query.value(6).toString();
         run.notes = query.value(7).toString();
+        run.builds = query.value(8).toString();
         list << run;
     }
     return true;
@@ -687,8 +735,8 @@ bool QaDatabase::createRun(QaRun &run, const QList<qint64> &suiteIds, QString &e
     run.started = now();
     run.finished.clear();
     QSqlQuery query;
-    if (!exec(QStringLiteral("INSERT INTO runs (project_id, name, build, tester, started, notes) VALUES (?, ?, ?, ?, ?, ?)"),
-              { run.projectId, run.name, run.build.trimmed(), run.tester.trimmed(), run.started, run.notes }, error, &query))
+    if (!exec(QStringLiteral("INSERT INTO runs (project_id, name, build, tester, started, notes, builds) VALUES (?, ?, ?, ?, ?, ?, ?)"),
+              { run.projectId, run.name, run.build.trimmed(), run.tester.trimmed(), run.started, run.notes, run.builds.trimmed() }, error, &query))
         return false;
     const qint64 id = query.lastInsertId().toLongLong();
 
@@ -728,13 +776,243 @@ bool QaDatabase::updateRun(const QaRun &run, QString &error)
         error = QStringLiteral("A test run needs a name.");
         return false;
     }
-    return exec(QStringLiteral("UPDATE runs SET name = ?, build = ?, tester = ?, notes = ?, finished = ? WHERE id = ?"),
-                { run.name.trimmed(), run.build.trimmed(), run.tester.trimmed(), run.notes, run.finished, run.id }, error);
+    return exec(QStringLiteral("UPDATE runs SET name = ?, build = ?, tester = ?, notes = ?, finished = ?, builds = ? WHERE id = ?"),
+                { run.name.trimmed(), run.build.trimmed(), run.tester.trimmed(), run.notes, run.finished, run.builds.trimmed(), run.id }, error);
 }
 
 bool QaDatabase::deleteRun(qint64 id, QString &error)
 {
-    return exec(QStringLiteral("DELETE FROM runs WHERE id = ?"), { id }, error);
+    const QStringList files = attachmentFiles(QStringLiteral("run_id = ?"), { id });
+    if (!exec(QStringLiteral("DELETE FROM runs WHERE id = ?"), { id }, error))
+        return false;
+    removeFiles(files);
+    return true;
+}
+
+bool QaDatabase::createRerun(QaRun &run, qint64 fromRunId, const QStringList &statuses, QString &error)
+{
+    run.name = run.name.trimmed();
+    if (run.name.isEmpty())
+    {
+        error = QStringLiteral("A test run needs a name.");
+        return false;
+    }
+    QSqlQuery query;
+    if (!exec(QStringLiteral("SELECT project_id, build, builds FROM runs WHERE id = ?"), { fromRunId }, error, &query))
+        return false;
+    if (!query.next())
+    {
+        error = QStringLiteral("That test run is not there any more.");
+        return false;
+    }
+    run.projectId = query.value(0).toLongLong();
+    if (run.build.trimmed().isEmpty() && run.builds.trimmed().isEmpty())
+    {
+        run.build = query.value(1).toString();
+        run.builds = query.value(2).toString();
+    }
+
+    Transaction transaction(QSqlDatabase::database(m_connection, false));
+    run.started = now();
+    run.finished.clear();
+    if (!exec(QStringLiteral("INSERT INTO runs (project_id, name, build, tester, started, notes, builds) VALUES (?, ?, ?, ?, ?, ?, ?)"),
+              { run.projectId, run.name, run.build.trimmed(), run.tester.trimmed(), run.started, run.notes, run.builds.trimmed() }, error, &query))
+        return false;
+    const qint64 id = query.lastInsertId().toLongLong();
+    int cases = 0;
+    for (const QString &status : statuses)
+    {
+        if (!exec(QStringLiteral("INSERT INTO results (run_id, case_id, assigned) SELECT ?, case_id, assigned FROM results WHERE run_id = ? AND status = ?"),
+                  { id, fromRunId, status }, error, &query))
+            return false;
+        cases += query.numRowsAffected();
+    }
+    if (cases == 0)
+    {
+        error = QStringLiteral("No test case of that run ended that way: there is nothing to run again.");
+        return false;
+    }
+    if (!transaction.commit())
+    {
+        error = QStringLiteral("The test run could not be stored.");
+        return false;
+    }
+    run.id = id;
+    return true;
+}
+
+bool QaDatabase::assign(qint64 runId, const QList<qint64> &caseIds, const QString &tester, QString &error)
+{
+    Transaction transaction(QSqlDatabase::database(m_connection, false));
+    for (const qint64 caseId : caseIds)
+    {
+        QSqlQuery query;
+        if (!exec(QStringLiteral("UPDATE results SET assigned = ? WHERE run_id = ? AND case_id = ?"), { tester.trimmed(), runId, caseId }, error, &query))
+            return false;
+        if (query.numRowsAffected() != 1)
+        {
+            error = QStringLiteral("That test case is not part of the run.");
+            return false;
+        }
+    }
+    if (!transaction.commit())
+    {
+        error = QStringLiteral("It could not be stored.");
+        return false;
+    }
+    return true;
+}
+
+QStringList QaDatabase::testers(qint64 runId)
+{
+    QStringList names;
+    QString error;
+    QSqlQuery query;
+    if (exec(QStringLiteral("SELECT name FROM (SELECT assigned AS name, 0 AS place FROM results WHERE run_id = ? AND assigned <> '' "
+                            "UNION ALL SELECT tester, 1 FROM results WHERE run_id = ? AND tester <> '' "
+                            "UNION ALL SELECT tester, 2 FROM runs WHERE id = ? AND tester <> '') ORDER BY place, name"), { runId, runId, runId }, error, &query))
+        while (query.next())
+            if (!names.contains(query.value(0).toString(), Qt::CaseInsensitive))
+                names << query.value(0).toString();
+    names.sort(Qt::CaseInsensitive);
+    return names;
+}
+
+QString QaDatabase::lastBuilds(qint64 projectId)
+{
+    QString error;
+    QSqlQuery query;
+    if (exec(QStringLiteral("SELECT builds FROM runs WHERE project_id = ? AND builds <> '' ORDER BY started DESC, id DESC LIMIT 1"), { projectId }, error, &query) && query.next())
+        return query.value(0).toString();
+    return QString();
+}
+
+// ---- files that go with a result -------------------------------------------------------------------
+
+QString QaDatabase::attachmentsFolder() const
+{
+    return m_path.isEmpty() || m_path == QLatin1String(":memory:") ? QString() : QFileInfo(m_path).absoluteDir().absoluteFilePath(QStringLiteral("attachments"));
+}
+
+QString QaDatabase::attachmentPath(const QaAttachment &attachment) const
+{
+    const QString folder = attachmentsFolder();
+    return folder.isEmpty() || attachment.file.isEmpty() ? QString() : QDir(folder).absoluteFilePath(attachment.file);
+}
+
+bool QaDatabase::attach(qint64 runId, qint64 caseId, const QString &sourceFile, const QString &name, QaAttachment &attachment, QString &error)
+{
+    attachment = QaAttachment();
+    const QString folder = attachmentsFolder();
+    if (folder.isEmpty())
+    {
+        error = QStringLiteral("Files are kept beside the database, and this one is not a file.");
+        return false;
+    }
+    const QFileInfo source(sourceFile);
+    if (!source.isFile())
+    {
+        error = QStringLiteral("There is no file %1.").arg(QDir::toNativeSeparators(sourceFile));
+        return false;
+    }
+    if (source.size() > 50LL * 1024 * 1024)
+    {
+        error = QStringLiteral("%1 is larger than 50 MB: too large to keep with a result.").arg(source.fileName());
+        return false;
+    }
+    QSqlQuery query;
+    if (!exec(QStringLiteral("SELECT 1 FROM results WHERE run_id = ? AND case_id = ?"), { runId, caseId }, error, &query))
+        return false;
+    if (!query.next())
+    {
+        error = QStringLiteral("That test case is not part of the run.");
+        return false;
+    }
+
+    const QString called = name.trimmed().isEmpty() ? source.fileName() : name.trimmed();
+    const QString relative = QStringLiteral("%1/%2-%3-%4").arg(runId).arg(caseId).arg(QUuid::createUuid().toString(QUuid::WithoutBraces).left(8), safeName(called));
+    const QString target = QDir(folder).absoluteFilePath(relative);
+    if (!QDir().mkpath(QFileInfo(target).absolutePath()) || !QFile::copy(sourceFile, target))
+    {
+        error = QStringLiteral("The file could not be copied to %1. Everybody who attaches files needs to be allowed to write there.")
+                    .arg(QDir::toNativeSeparators(QFileInfo(target).absolutePath()));
+        return false;
+    }
+    const QString when = now();
+    if (!exec(QStringLiteral("INSERT INTO attachments (run_id, case_id, name, file, added, added_by) VALUES (?, ?, ?, ?, ?, ?)"),
+              { runId, caseId, called, relative, when, m_user }, error, &query))
+    {
+        QFile::remove(target);
+        return false;
+    }
+    attachment.id = query.lastInsertId().toLongLong();
+    attachment.runId = runId;
+    attachment.caseId = caseId;
+    attachment.name = called;
+    attachment.file = relative;
+    attachment.added = when;
+    attachment.addedBy = m_user;
+    return true;
+}
+
+bool QaDatabase::attachments(qint64 runId, qint64 caseId, QList<QaAttachment> &list, QString &error)
+{
+    list.clear();
+    QSqlQuery query;
+    if (!exec(QStringLiteral("SELECT id, run_id, case_id, name, file, added, added_by FROM attachments WHERE run_id = ? AND case_id = ? ORDER BY id"),
+              { runId, caseId }, error, &query))
+        return false;
+    while (query.next())
+    {
+        QaAttachment attachment;
+        attachment.id = query.value(0).toLongLong();
+        attachment.runId = query.value(1).toLongLong();
+        attachment.caseId = query.value(2).toLongLong();
+        attachment.name = query.value(3).toString();
+        attachment.file = query.value(4).toString();
+        attachment.added = query.value(5).toString();
+        attachment.addedBy = query.value(6).toString();
+        list << attachment;
+    }
+    return true;
+}
+
+bool QaDatabase::removeAttachment(qint64 id, QString &error)
+{
+    const QStringList files = attachmentFiles(QStringLiteral("id = ?"), { id });
+    if (!exec(QStringLiteral("DELETE FROM attachments WHERE id = ?"), { id }, error))
+        return false;
+    removeFiles(files);
+    return true;
+}
+
+QStringList QaDatabase::attachmentFiles(const QString &where, const QVariantList &values)
+{
+    QStringList files;
+    QString error;
+    QSqlQuery query;
+    if (exec(QStringLiteral("SELECT file FROM attachments WHERE %1").arg(where), values, error, &query))
+        while (query.next())
+            files << query.value(0).toString();
+    return files;
+}
+
+void QaDatabase::removeFiles(const QStringList &files)
+{
+    const QString folder = attachmentsFolder();
+    if (folder.isEmpty())
+        return;
+    const QDir dir(folder);
+    for (const QString &file : files)
+    {
+        // Only what is inside the folder, whatever a row says.
+        const QString path = QDir::cleanPath(dir.absoluteFilePath(file));
+        if (!file.isEmpty() && path.startsWith(QDir::cleanPath(folder) + QLatin1Char('/')))
+        {
+            QFile::remove(path);
+            dir.rmdir(QFileInfo(path).absolutePath());      // a run's folder, once it is empty
+        }
+    }
 }
 
 bool QaDatabase::results(qint64 runId, QList<QaResult> &list, QString &error)
@@ -816,6 +1094,12 @@ bool QaDatabase::importJson(const QJsonObject &scripts, QaImportCounts &counts, 
     Transaction transaction(QSqlDatabase::database(m_connection, false));
     QSqlQuery query;
 
+    // What the project is made of ("components": [ "Server", "Desktop app" ]), where the file says.
+    QStringList parts;
+    for (const QJsonValue &part : scripts.value(QLatin1String("components")).toArray())
+        parts << part.toString();
+    const QString components = componentList(parts.join(QLatin1Char(','))).join(QStringLiteral(", "));
+
     qint64 projectId = 0;
     if (!exec(QStringLiteral("SELECT id FROM projects WHERE name = ?"), { projectName }, error, &query))
         return false;
@@ -826,12 +1110,15 @@ bool QaDatabase::importJson(const QJsonObject &scripts, QaImportCounts &counts, 
         const QString description = scripts.value(QLatin1String("description")).toString();
         if (!description.isEmpty() && !exec(QStringLiteral("UPDATE projects SET description = ? WHERE id = ?"), { description, projectId }, error))
             return false;
+        if (!components.isEmpty() && !exec(QStringLiteral("UPDATE projects SET components = ? WHERE id = ?"), { components, projectId }, error))
+            return false;
     }
     else
     {
         QaProject project;
         project.name = projectName;
         project.description = scripts.value(QLatin1String("description")).toString();
+        project.components = components;
         if (!addProject(project, error))
             return false;
         projectId = project.id;
@@ -933,7 +1220,7 @@ bool QaDatabase::exportJson(qint64 projectId, QJsonObject &scripts, QString &err
 {
     scripts = QJsonObject();
     QSqlQuery query;
-    if (!exec(QStringLiteral("SELECT name, description FROM projects WHERE id = ?"), { projectId }, error, &query))
+    if (!exec(QStringLiteral("SELECT name, description, components FROM projects WHERE id = ?"), { projectId }, error, &query))
         return false;
     if (!query.next())
     {
@@ -942,6 +1229,8 @@ bool QaDatabase::exportJson(qint64 projectId, QJsonObject &scripts, QString &err
     }
     scripts.insert(QStringLiteral("project"), query.value(0).toString());
     scripts.insert(QStringLiteral("description"), query.value(1).toString());
+    if (!componentList(query.value(2).toString()).isEmpty())
+        scripts.insert(QStringLiteral("components"), QJsonArray::fromStringList(componentList(query.value(2).toString())));
 
     QList<QaSuite> suiteList;
     if (!suites(projectId, suiteList, error))

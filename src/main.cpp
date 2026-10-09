@@ -52,7 +52,7 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
     QCoreApplication::setOrganizationName(QStringLiteral("QATest"));
     QCoreApplication::setApplicationName(QStringLiteral("QATest"));
-    QCoreApplication::setApplicationVersion(QStringLiteral("1.1"));
+    QCoreApplication::setApplicationVersion(QStringLiteral("1.2"));
 
     // The icon of every window: the sizes a title bar and a taskbar ask for.
     QIcon icon;

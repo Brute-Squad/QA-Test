@@ -32,6 +32,12 @@ namespace
         return result.status == QaDatabase::failed() && result.failedStep > 0 ? QStringLiteral("%1 at step %2").arg(result.status).arg(result.failedStep) : result.status;
     }
 
+    // " [2 files]" - what was attached is with the database, not in a document.
+    QString filesText(const QaResult &result)
+    {
+        return result.attachments <= 0 ? QString() : result.attachments == 1 ? QStringLiteral(" [1 file attached]") : QStringLiteral(" [%1 files attached]").arg(result.attachments);
+    }
+
     QString fileName(QString title)
     {
         for (QChar &character : title)
@@ -60,6 +66,12 @@ QString Report::html(const QString &projectName, const QaRun &run, const QaSumma
     };
     line(QStringLiteral("Test run"), run.name);
     line(QStringLiteral("Build tested"), run.build);
+    // The build of each component, a line each: "Server: 0.2.0 Beta, built ...".
+    for (const QString &component : run.builds.split(QLatin1Char('\n'), Qt::SkipEmptyParts))
+    {
+        const int colon = int(component.indexOf(QStringLiteral(": ")));
+        line(colon > 0 ? escaped(component.left(colon)) : QStringLiteral("Build tested"), colon > 0 ? component.mid(colon + 2) : component);
+    }
     line(QStringLiteral("Tester"), run.tester);
     line(QStringLiteral("Started"), localTime(run.started));
     line(QStringLiteral("Finished"), run.finished.isEmpty() ? QStringLiteral("not yet") : localTime(run.finished));
@@ -74,7 +86,7 @@ QString Report::html(const QString &projectName, const QaRun &run, const QaSumma
         if (result.status != QaDatabase::failed() && result.status != QaDatabase::blocked())
             continue;
         trouble += QStringLiteral("<tr><td>%1</td><td>%2</td><td>%3</td><td>%4</td></tr>")
-                       .arg(escaped(result.caseKey), escaped(result.caseTitle), escaped(resultText(result)), escaped(result.notes));
+                       .arg(escaped(result.caseKey), escaped(result.caseTitle), escaped(resultText(result)), escaped(result.notes) + filesText(result));
     }
     html += QStringLiteral("<h2>Failed and blocked</h2>");
     html += trouble.isEmpty() ? QStringLiteral("<p>None.</p>")
@@ -96,7 +108,7 @@ QString Report::html(const QString &projectName, const QaRun &run, const QaSumma
                                    "<th width=\"12%\">By</th><th>Notes</th></tr>").arg(escaped(suite));
         }
         html += QStringLiteral("<tr><td>%1</td><td>%2</td><td>%3</td><td>%4</td><td>%5</td></tr>")
-                    .arg(escaped(result.caseKey), escaped(result.caseTitle), escaped(resultText(result)), escaped(result.tester), escaped(result.notes));
+                    .arg(escaped(result.caseKey), escaped(result.caseTitle), escaped(resultText(result)), escaped(result.tester), escaped(result.notes) + filesText(result));
     }
     if (open)
         html += QStringLiteral("</table>");
