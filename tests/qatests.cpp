@@ -20,10 +20,15 @@
 //   finding        words looked for in cases and their steps, tags, a run of
 //                  a tag, several cases moved, deleted and put into a run at
 //                  once, a case and a suite cloned - and the tree's filters
+//   reporting      the issue a failure was reported as and its address, how
+//                  a project stands over its runs - pass rates, open
+//                  failures by issue, what keeps failing, what never ran -
+//                  a run as CSV, and the Dashboard tab
 //   the window     the program's own window and panels, offscreen, on a
 //                  database in memory: the tree, a case edited and saved, a
 //                  run made and worked through, its report
 #include "casepanel.h"
+#include "dashboard.h"
 #include "mainwindow.h"
 #include "qabackup.h"
 #include "qaconfig.h"
@@ -54,6 +59,8 @@
 #include <QSpinBox>
 #include <QSqlDatabase>
 #include <QSqlQuery>
+#include <QTabWidget>
+#include <QTextBrowser>
 #include <QTableWidget>
 #include <QTemporaryDir>
 #include <QTextStream>
@@ -1068,7 +1075,7 @@ namespace
         check(runs->createRun("Beta 3", "0.2.0", "pat", {}, error, "Server: 0.2.0, built 07:50\nPhone app: 0.2.0, built 06:12") && runs->tester() == "pat", "a run is made: " + error);
         check(!builds->isHidden() && builds->text().startsWith("Tested: Server: 0.2.0, built 07:50") && builds->text().endsWith("Phone app: 0.2.0, built 06:12"),
               "the panel says what is tested: " + builds->text());
-        check(table->columnCount() == 9 && table->horizontalHeaderItem(7)->text() == "For" && table->horizontalHeaderItem(8)->text() == "Files" && table->rowCount() == 3
+        check(table->columnCount() == 10 && table->horizontalHeaderItem(7)->text() == "For" && table->horizontalHeaderItem(8)->text() == "Files" && table->rowCount() == 3
               && modeButton->isEnabled() && assign->isEnabled() && !rerun->isEnabled(), "its cases, with whose they are and their files");
 
         // ---- whose a case is
@@ -1585,6 +1592,269 @@ namespace
         if (dialog)
             dialog->reject();
     }
+
+    // ---- reporting ---------------------------------------------------------------------------------
+    void reportTests()
+    {
+        const QString github = "https://github.com/Brute-Squad/FactoryInventory/issues/%1";
+        // ---- the address of an issue
+        check(QaDatabase::defectUrl(github, "123") == "https://github.com/Brute-Squad/FactoryInventory/issues/123" && QaDatabase::defectUrl(github, " #123 ") == QaDatabase::defectUrl(github, "123"),
+              "an issue's number in the project's address, with or without its #");
+        check(QaDatabase::defectUrl("https://tracker.example/issues", "FI-12") == "https://tracker.example/issues/FI-12"
+              && QaDatabase::defectUrl("https://tracker.example/issues/", "7") == "https://tracker.example/issues/7", "an address without a place for it gets it at its end");
+        check(QaDatabase::defectUrl("", "https://elsewhere.example/bug/9") == "https://elsewhere.example/bug/9" && QaDatabase::defectUrl(github, "https://elsewhere.example/bug/9")
+              == "https://elsewhere.example/bug/9", "a whole address is itself, whatever the project says");
+        check(QaDatabase::defectUrl("", "123").isEmpty() && QaDatabase::defectUrl(github, "").isEmpty() && QaDatabase::defectUrl(github, "#").isEmpty()
+              && QaDatabase::defectUrl(github, "12 3").isEmpty() && QaDatabase::defectUrl(github, "../../x").isEmpty() && QaDatabase::defectUrl(github, "1?a=b").isEmpty()
+              && QaDatabase::defectUrl("file:///C:/x/%1", "1").isEmpty() && QaDatabase::defectUrl(github, "https://a b").isEmpty(),
+              "nothing to open: no address, no number, or what is neither");
+
+        QaDatabase db;
+        db.setUser("pat");
+        QString error;
+        QaImportCounts counts;
+        QJsonObject scripts = sampleScripts();
+        scripts.insert("issueUrl", " https://github.com/o/r/issues/%1 ");
+        QList<QaProject> projects;
+        check(db.open(":memory:", error) && db.importJson(scripts, counts, error) && db.projects(projects, error) && projects.at(0).issueUrl == "https://github.com/o/r/issues/%1",
+              "test scripts say where their project's issues are: " + projects.value(0).issueUrl);
+        const qint64 projectId = projects.value(0).id;
+        QJsonObject written;
+        check(db.exportJson(projectId, written, error) && written.value("issueUrl").toString() == "https://github.com/o/r/issues/%1" && db.importJson(sampleScripts(), counts, error)
+              && db.projects(projects, error) && projects.at(0).issueUrl == "https://github.com/o/r/issues/%1", "written back, and left by a file that says nothing of it");
+        QaProject changed = projects.at(0);
+        changed.issueUrl = " https://tracker.example/%1 ";
+        check(db.updateProject(changed, error) && db.projects(projects, error) && projects.at(0).issueUrl == "https://tracker.example/%1" && projects.at(0).name == "Sample",
+              "and changed with the project");
+        changed.issueUrl = "https://github.com/o/r/issues/%1";
+        db.updateProject(changed, error);
+
+        // ---- how an empty project stands
+        QaDashboard standing;
+        QaProject empty;
+        empty.name = "Empty";
+        check(db.addProject(empty, error) && db.dashboard(empty.id, standing, error) && standing.cases == 0 && standing.runs.isEmpty() && standing.open.isEmpty()
+              && standing.failing.isEmpty() && standing.neverRun.isEmpty(), "a project with nothing in it: " + error);
+        QString html = Dashboard::html("Empty", standing, "");
+        check(html.contains("How Empty stands") && html.contains("None yet: New Run...") && html.contains("The project has no test cases.") && html.contains("0 never run"),
+              "is said to have nothing");
+        check(db.dashboard(projectId, standing, error) && standing.cases == 3 && standing.neverRun.size() == 3 && standing.neverRun.at(0).key == "S-LOGIN-001"
+              && standing.neverRun.at(0).suite == "Login" && standing.runs.isEmpty(), "cases, and no run yet: all of them never ran");
+
+        // ---- three runs
+        QList<QaSuite> suites;
+        QList<QaCase> login, parts;
+        db.suites(projectId, suites, error);
+        db.cases(suites.at(0).id, login, error);
+        db.cases(suites.at(1).id, parts, error);
+        const qint64 a = login.at(0).id, b = login.at(1).id, c = parts.at(0).id;
+        QaRun first, second, third;
+        first.projectId = second.projectId = third.projectId = projectId;
+        first.name = "Beta 1";
+        first.build = "0.1";
+        second.name = "Beta 2";
+        third.name = "Beta 3";
+        check(db.createRun(first, {}, error) && db.createRun(second, {}, error) && db.createRun(third, {}, error), "three runs: " + error);
+
+        // An issue belongs to a failure.
+        check(!db.setDefect(first.id, b, "12", error) && error == "An issue belongs to a result that failed or was blocked: this one is \"Not run\".", "no issue on what is not run: " + error);
+        check(!db.setDefect(first.id, 999999, "12", error) && error == "That test case is not part of the run.", "nor on a case that is not in the run");
+        check(db.setResult(first.id, a, "Passed", "", 0, "pat", error) && db.setResult(first.id, b, "Failed", "He said \"no\", twice\nand again", 1, "pat", error)
+              && db.setResult(first.id, c, "Blocked", "No server", 0, "lou", error), "the first run: one passes, one fails, one is blocked");
+        QList<QaResult> results;
+        check(db.setDefect(first.id, b, "  #12 ", error) && db.setDefect(first.id, c, "13", error) && db.results(first.id, results, error) && results.at(1).defect == "#12"
+              && results.at(2).defect == "13" && results.at(0).defect.isEmpty(), "a failure and a blocked case are reported as issues: " + error);
+        check(db.setResult(first.id, c, "Blocked", "Still no server", 0, "lou", error) && db.results(first.id, results, error) && results.at(2).defect == "13",
+              "which stay while the case is blocked or failed");
+        check(db.setResult(first.id, c, "Passed", "", 0, "lou", error) && db.results(first.id, results, error) && results.at(2).defect.isEmpty(), "and go when it passes");
+        check(db.setResult(first.id, c, "Blocked", "No server", 0, "lou", error) && db.setDefect(first.id, c, "13", error) && db.setDefect(first.id, c, "", error)
+              && db.results(first.id, results, error) && results.at(2).defect.isEmpty(), "or are taken away");
+        check(db.setResult(second.id, a, "Passed", "", 0, "pat", error) && db.setResult(second.id, b, "Failed", "Let in again", 0, "pat", error) && db.setDefect(second.id, b, "12", error)
+              && db.setResult(second.id, c, "Passed", "", 0, "pat", error), "the second run: the same failure again");
+        check(db.setResult(third.id, a, "Failed", "Did not start", 0, "lou", error), "the third: another one fails, the rest is not run");
+        QaCase fresh;
+        fresh.suiteId = suites.at(1).id;
+        fresh.key = "S-PARTS-002";
+        fresh.title = "A part nobody has tested";
+        check(db.saveCase(fresh, error), "and a case no run has");
+
+        // ---- how the project stands
+        check(db.dashboard(projectId, standing, error) && standing.cases == 4 && standing.runs.size() == 3 && standing.runs.at(0).run.name == "Beta 1"
+              && standing.runs.at(2).run.name == "Beta 3", "the runs, the oldest first: " + error);
+        check(standing.runs.at(0).counts.passed == 1 && standing.runs.at(0).counts.failed == 1 && standing.runs.at(0).counts.blocked == 1 && standing.runs.at(0).passRate() == 33
+              && standing.runs.at(1).passRate() == 66 && standing.runs.at(2).passRate() == 0 && standing.runs.at(2).counts.notRun == 2, "each with its pass rate, of what has a verdict");
+        QaRunStanding nothing;
+        nothing.counts.total = 5;
+        nothing.counts.notRun = 4;
+        nothing.counts.skipped = 1;
+        check(nothing.passRate() == -1, "none where nothing has one");
+        check(standing.open.size() == 2 && standing.open.at(0).key == "S-LOGIN-002" && standing.open.at(0).defect == "12" && standing.open.at(0).runName == "Beta 2"
+              && standing.open.at(0).notes == "Let in again" && standing.open.at(1).key == "S-LOGIN-001" && standing.open.at(1).defect.isEmpty() && standing.open.at(1).runName == "Beta 3"
+              && standing.open.at(1).tester == "lou", "what is wrong now: the cases whose newest result failed - by issue, those without one last");
+        check(standing.failing.size() == 1 && standing.failing.at(0).key == "S-LOGIN-002" && standing.failing.at(0).bad == 2 && standing.failing.at(0).ran == 2
+              && standing.failing.at(0).lastStatus == "Failed" && standing.failing.at(0).suite == "Login", "what keeps failing: in two runs or more");
+        check(standing.neverRun.size() == 1 && standing.neverRun.at(0).key == "S-PARTS-002", "and what never ran");
+        // The newest result of a case decides: one that passes again is not open any more.
+        check(db.setResult(third.id, b, "Passed", "", 0, "pat", error) && db.dashboard(projectId, standing, error) && standing.open.size() == 1 && standing.open.at(0).key == "S-LOGIN-001"
+              && standing.failing.size() == 1 && standing.failing.at(0).lastStatus == "Passed" && standing.failing.at(0).ran == 3, "a case that passes again is no open failure");
+        check(db.setResult(third.id, b, "Not run", "", 0, "pat", error) && db.dashboard(projectId, standing, error) && standing.open.size() == 2, "taken back, it is open as before");
+
+        // ---- as a document
+        html = Dashboard::html("Sample", standing, "https://github.com/o/r/issues/%1");
+        check(html.contains("How Sample stands") && html.contains("4 test cases") && html.contains("3 test runs") && html.contains("2 open failures") && html.contains("1 never run"),
+              "the dashboard says how many of everything");
+        check(html.contains(QString(7, QChar(0x2588)) + QString(13, QChar(0x2591)) + " 33%") && html.contains(QString(20, QChar(0x2591)) + " 0%")
+              && html.contains(QString::fromUtf8("Pass rate, run by run: 33% \xE2\x86\x92 66% \xE2\x86\x92 0%")), "each run's pass rate as a bar, and how it went over time");
+        check(html.contains("<b><a href=\"https://github.com/o/r/issues/12\">#12</a></b><br>1 test case") && html.contains("<b>No issue yet</b><br>1 test case")
+              && html.indexOf("#12</a>") < html.indexOf("No issue yet") && html.contains("Let in again") && html.contains("Did not start"),
+              "open failures under their issue, which is a link");
+        check(html.contains("in 2 of 2 runs") && html.contains("1 test case no run has a result for.") && html.contains("A part nobody has tested"),
+              "what keeps failing, and what never ran");
+        html = Dashboard::html("Sample", standing, "");
+        check(html.contains("<b>#12</b>") && !html.contains("<a href"), "an issue is a number where the project does not say where its issues are");
+
+        // ---- a run as a table for a spreadsheet
+        check(db.results(first.id, results, error), "the first run's results");
+        const QString csv = Report::csv(results);
+        const QStringList lines = csv.split("\r\n");
+        check(lines.at(0) == "Suite,Key,Title,Priority,Run on,Result,Failed at step,By,When,For,Issue,Files,Notes" && csv.endsWith("\r\n"), "a run as CSV: what the columns are");
+        check(lines.at(1).startsWith("Login,S-LOGIN-001,Log in,High,Desktop,Passed,,pat,20") && lines.at(1).endsWith(",,,,"), "a line per test case: " + lines.value(1));
+        check(csv.contains("Login,S-LOGIN-002,A wrong password,Medium,,Failed,1,pat,") && csv.contains(",,#12,,\"He said \"\"no\"\", twice\nand again\"\r\n"),
+              "text with commas, marks and line breaks in quotation marks, an issue in its column");
+        check(csv.contains("Parts,S-PARTS-001,Add a part,Medium,,Blocked,,lou,"), "and every case");
+        QTemporaryDir folder;
+        const QString file = folder.filePath("run.csv");
+        QFile read(file);
+        check(Report::saveCsv(csv, file, error) && read.open(QIODevice::ReadOnly) && read.read(3) == QByteArray("\xEF\xBB\xBF") && read.readAll() == csv.toUtf8(),
+              "written as UTF-8 that a spreadsheet takes for it: " + error);
+        check(!Report::saveCsv(csv, folder.filePath("no/such/folder/run.csv"), error) && !error.isEmpty(), "a folder that is not there is said");
+
+        // ---- the report of a run names the issue
+        QaSummary summary;
+        db.summary(first.id, summary, error);
+        html = Report::html("Sample", first, summary, results, "https://github.com/o/r/issues/%1");
+        check(html.contains("<th width=\"10%\">Issue</th>") && html.contains("<a href=\"https://github.com/o/r/issues/12\">#12</a>"), "the report of a run names a failure's issue");
+        html = Report::html("Sample", first, summary, results);
+        check(html.contains("<td>#12</td>") && !html.contains("<a href"), "as a number, without an address");
+
+        // ---- a database from before the issues
+        QTemporaryDir older;
+        const QString path = older.filePath("qatest.sqlite");
+        QaDatabase onDisk;
+        check(onDisk.open(path, error) && onDisk.importJson(sampleScripts(), counts, error), "a database in a file");
+        onDisk.close();
+        bool dropped = false;
+        {
+            QSqlDatabase raw = QSqlDatabase::addDatabase("QSQLITE", "raw4");
+            raw.setDatabaseName(path);
+            if (raw.open())
+            {
+                QSqlQuery query(raw);
+                dropped = query.exec("ALTER TABLE results DROP COLUMN defect") && query.exec("ALTER TABLE projects DROP COLUMN issue_url");
+            }
+            raw.close();
+        }
+        QSqlDatabase::removeDatabase("raw4");
+        check(dropped && onDisk.open(path, error) && onDisk.projects(projects, error) && projects.size() == 1 && projects.at(0).issueUrl.isEmpty()
+              && onDisk.dashboard(projects.at(0).id, standing, error) && standing.cases == 3, "a database from an older version is brought up to date: " + error);
+    }
+
+    void reportWindowTests()
+    {
+        QaDatabase db;
+        db.setUser("pat");
+        QString error;
+        QaImportCounts counts;
+        check(db.open(":memory:", error) && db.importJson(sampleScripts(), counts, error), "a database for the dashboard: " + error);
+        MainWindow window(&db);
+        auto *tabs = window.findChild<QTabWidget *>("tabs");
+        DashboardPanel *dashboard = window.dashboard();
+        RunPanel *runs = window.runPanel();
+        auto *table = runs->findChild<QTableWidget *>("runResults");
+        auto *notes = runs->findChild<QPlainTextEdit *>("runNotes");
+        auto *defect = runs->findChild<QLineEdit *>("runDefect");
+        auto *failed = runs->findChild<QPushButton *>("markFailed");
+        auto *passed = runs->findChild<QPushButton *>("markPassed");
+        auto *csvButton = runs->findChild<QPushButton *>("runCsv");
+        auto *problem = runs->findChild<QLabel *>("runProblem");
+        check(tabs && dashboard && table && notes && defect && failed && passed && csvButton && problem, "the pieces for reporting");
+        if (!tabs || !dashboard || !table || !notes || !defect || !failed || !passed || !csvButton || !problem)
+            return;
+        check(tabs->count() == 3 && tabs->tabText(2) == "Dashboard" && dashboard->projectId() == runs->projectId() && dashboard->projectId() != 0,
+              "a third tab, for the project that is selected");
+        check(dashboard->html().contains("How Sample stands") && dashboard->html().contains("None yet: New Run...") && dashboard->html().contains("3 never run"),
+              "which says how it stands before any run");
+        check(!csvButton->isEnabled() && runs->csv().isEmpty() && !defect->isEnabled(), "no run: nothing to export, no issue to name");
+
+        // ---- the issue a failure was reported as
+        check(runs->createRun("Beta 1", "0.1", "pat", {}, error) && table->columnCount() == 10 && table->horizontalHeaderItem(9)->text() == "Issue" && csvButton->isEnabled()
+              && defect->isEnabled(), "a run: " + error);
+        table->selectRow(1);
+        notes->setPlainText("It was let in");
+        defect->setText(" #77 ");
+        failed->click();
+        QList<QaResult> results;
+        check(table->item(1, 9)->text() == "#77" && db.results(runs->runId(), results, error) && results.at(1).defect == "#77" && results.at(1).status == "Failed",
+              "Failed stores the issue that was typed with it: " + table->item(1, 9)->text());
+        table->selectRow(1);
+        check(defect->text() == "#77" && runs->defectLink().isEmpty(), "it is shown with the case; without the project's address it is a number");
+        QList<QaProject> projects;
+        db.projects(projects, error);
+        QaProject project = projects.value(0);
+        project.issueUrl = "https://github.com/Brute-Squad/FactoryInventory/issues/%1";
+        check(db.updateProject(project, error) && runs->defectLink() == "https://github.com/Brute-Squad/FactoryInventory/issues/77", "with it, an address: " + runs->defectLink());
+        // Changed afterwards, it is stored as the field is left.
+        defect->setText("78");
+        emit defect->editingFinished();
+        check(table->item(1, 9)->text() == "78" && defect->text() == "78" && table->currentRow() == 1 && notes->toPlainText() == "It was let in",
+              "a change of the issue is stored when the field is left, and the case stays selected");
+        // Not on a case that has not failed.
+        table->selectRow(2);
+        defect->setText("5");
+        emit defect->editingFinished();
+        check(table->item(2, 9)->text().isEmpty() && db.results(runs->runId(), results, error) && results.at(2).defect.isEmpty(), "an issue waits for Failed or Blocked");
+        passed->click();
+        check(table->item(2, 9)->text().isEmpty() && table->item(2, 3)->text().endsWith("Passed"), "and is not kept by a case that passes");
+        table->selectRow(1);
+        passed->click();
+        check(table->item(1, 9)->text().isEmpty(), "nor by one that passes after all");
+
+        // ---- Run Mode names it too
+        table->selectRow(0);
+        RunMode *mode = runs->openRunMode();
+        auto *modeDefect = mode ? mode->findChild<QLineEdit *>("modeDefect") : nullptr;
+        auto *modeNotes = mode ? mode->findChild<QPlainTextEdit *>("modeNotes") : nullptr;
+        check(mode && modeDefect && modeNotes && mode->position() == 1 && modeDefect->text().isEmpty(), "Run Mode has a place for the issue");
+        if (!mode || !modeDefect || !modeNotes)
+            return;
+        modeNotes->setPlainText("No server");
+        modeDefect->setText("90");
+        mode->mark("Blocked");
+        check(table->item(0, 9)->text() == "90" && table->item(0, 3)->text().endsWith("Blocked"), "B stores it with the result");
+        mode->go(-1);
+        check(mode->position() == 1 && modeDefect->text() == "90", "and shows it when the case comes up again");
+        mode->accept();
+
+        // ---- the run as CSV, the report, the dashboard
+        const QString csv = runs->csv();
+        check(csv.startsWith("Suite,Key,Title,Priority,Run on,Result,Failed at step,By,When,For,Issue,Files,Notes\r\n") && csv.count("\r\n") == 4
+              && csv.contains("Login,S-LOGIN-001,Log in,High,Desktop,Blocked,,pat,") && csv.contains(",,90,,No server\r\n"), "the run as CSV: " + csv.section("\r\n", 1, 1));
+        check(runs->reportHtml().contains("<a href=\"https://github.com/Brute-Squad/FactoryInventory/issues/90\">90</a>"), "the report links the issue");
+        const QString standing = dashboard->html();
+        check(standing.contains("1 test run") && standing.contains("1 open failure") && standing.contains("<a href=\"https://github.com/Brute-Squad/FactoryInventory/issues/90\">#90</a>")
+              && standing.contains(QString(13, QChar(0x2588)) + QString(7, QChar(0x2591)) + " 66%") && standing.contains("None: every test case has a result in some run."),
+              "the dashboard follows: the run, its pass rate, the open failure under its issue");
+        auto *view = dashboard->findChild<QTextBrowser *>("dashboardView");
+        tabs->setCurrentIndex(2);
+        check(view && view->toPlainText().contains("How Sample stands") && view->toPlainText().contains("Open failures, by issue") && view->toPlainText().contains("#90")
+              && view->openExternalLinks(), "the tab shows it when it is looked at");
+        // ... and again when something changed while it is in front.
+        db.setResult(runs->runId(), results.at(0).caseId, "Passed", "", 0, "pat", error);
+        window.reload();
+        check(view && view->toPlainText().contains("None: no test case's newest result is a failure or blocked.") && !view->toPlainText().contains("#90"),
+              "and again when the window reads the database again");
+        tabs->setCurrentIndex(0);
+    }
 }
 
 int main(int argc, char *argv[])
@@ -1609,6 +1879,8 @@ int main(int argc, char *argv[])
     fastWindowTests();
     findTests();
     findWindowTests();
+    reportTests();
+    reportWindowTests();
 
     QTextStream out(stdout);
     if (g_failures == 0)

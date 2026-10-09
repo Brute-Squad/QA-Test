@@ -55,12 +55,13 @@ namespace
         result.executed   = query.value(11).toString();
         result.assigned   = query.value(12).toString();
         result.attachments = query.value(13).toInt();
+        result.defect     = query.value(14).toString();
         return result;
     }
 
     const char *const kResultColumns =
         "r.run_id, r.case_id, s.name, c.key, c.title, c.priority, c.area, r.status, r.notes, r.failed_step, r.tester, r.executed, r.assigned, "
-        "(SELECT COUNT(*) FROM attachments a WHERE a.run_id = r.run_id AND a.case_id = r.case_id)";
+        "(SELECT COUNT(*) FROM attachments a WHERE a.run_id = r.run_id AND a.case_id = r.case_id), r.defect";
 
     // A file's name as part of another: letters, digits, dots and dashes.
     QString safeName(const QString &name)
@@ -341,7 +342,9 @@ bool QaDatabase::createTables(QString &error)
         && addMissingColumn(QStringLiteral("cases"), QStringLiteral("tags"), QStringLiteral("TEXT NOT NULL DEFAULT ''"), error)
         && addMissingColumn(QStringLiteral("results"), QStringLiteral("assigned"), QStringLiteral("TEXT NOT NULL DEFAULT ''"), error)
         && addMissingColumn(QStringLiteral("runs"), QStringLiteral("builds"), QStringLiteral("TEXT NOT NULL DEFAULT ''"), error)
-        && addMissingColumn(QStringLiteral("projects"), QStringLiteral("components"), QStringLiteral("TEXT NOT NULL DEFAULT ''"), error);
+        && addMissingColumn(QStringLiteral("projects"), QStringLiteral("components"), QStringLiteral("TEXT NOT NULL DEFAULT ''"), error)
+        && addMissingColumn(QStringLiteral("projects"), QStringLiteral("issue_url"), QStringLiteral("TEXT NOT NULL DEFAULT ''"), error)
+        && addMissingColumn(QStringLiteral("results"), QStringLiteral("defect"), QStringLiteral("TEXT NOT NULL DEFAULT ''"), error);
 }
 
 bool QaDatabase::addMissingColumn(const QString &table, const QString &column, const QString &definition, QString &error)
@@ -364,10 +367,10 @@ bool QaDatabase::projects(QList<QaProject> &list, QString &error)
 {
     list.clear();
     QSqlQuery query;
-    if (!exec(QStringLiteral("SELECT id, name, description, components FROM projects ORDER BY LOWER(name)"), {}, error, &query))
+    if (!exec(QStringLiteral("SELECT id, name, description, components, issue_url FROM projects ORDER BY LOWER(name)"), {}, error, &query))
         return false;
     while (query.next())
-        list << QaProject { query.value(0).toLongLong(), query.value(1).toString(), query.value(2).toString(), query.value(3).toString() };
+        list << QaProject { query.value(0).toLongLong(), query.value(1).toString(), query.value(2).toString(), query.value(3).toString(), query.value(4).toString() };
     return true;
 }
 
@@ -381,8 +384,9 @@ bool QaDatabase::addProject(QaProject &project, QString &error)
     }
     QSqlQuery query;
     project.components = componentList(project.components).join(QStringLiteral(", "));
-    if (!exec(QStringLiteral("INSERT INTO projects (name, description, components, created) VALUES (?, ?, ?, ?)"),
-              { project.name, project.description, project.components, now() }, error, &query))
+    project.issueUrl = project.issueUrl.trimmed();
+    if (!exec(QStringLiteral("INSERT INTO projects (name, description, components, issue_url, created) VALUES (?, ?, ?, ?, ?)"),
+              { project.name, project.description, project.components, project.issueUrl, now() }, error, &query))
     {
         if (error.contains(QLatin1String("UNIQUE"), Qt::CaseInsensitive))
             error = QStringLiteral("There is a project \"%1\" already.").arg(project.name);
@@ -399,8 +403,8 @@ bool QaDatabase::updateProject(const QaProject &project, QString &error)
         error = QStringLiteral("A project needs a name.");
         return false;
     }
-    if (!exec(QStringLiteral("UPDATE projects SET name = ?, description = ?, components = ? WHERE id = ?"),
-              { project.name.trimmed(), project.description, componentList(project.components).join(QStringLiteral(", ")), project.id }, error))
+    if (!exec(QStringLiteral("UPDATE projects SET name = ?, description = ?, components = ?, issue_url = ? WHERE id = ?"),
+              { project.name.trimmed(), project.description, componentList(project.components).join(QStringLiteral(", ")), project.issueUrl.trimmed(), project.id }, error))
     {
         if (error.contains(QLatin1String("UNIQUE"), Qt::CaseInsensitive))
             error = QStringLiteral("There is a project \"%1\" already.").arg(project.name.trimmed());
@@ -503,7 +507,7 @@ bool QaDatabase::cases(qint64 suiteId, QList<QaCase> &list, QString &error)
     QSqlQuery query;
     // With its result in the newest run that has run it.
     if (!exec(QStringLiteral("SELECT c.id, c.suite_id, c.key, c.title, c.priority, c.area, c.preconditions, c.notes, "
-                             "COALESCE((SELECT r.status FROM results r WHERE r.case_id = c.id AND r.executed <> '' ORDER BY r.executed DESC LIMIT 1), ''), c.tags "
+                             "COALESCE((SELECT r.status FROM results r WHERE r.case_id = c.id AND r.executed <> '' ORDER BY r.executed DESC, r.run_id DESC LIMIT 1), ''), c.tags "
                              "FROM cases c WHERE c.suite_id = ? ORDER BY c.key, c.id"), { suiteId }, error, &query))
         return false;
     while (query.next())
@@ -909,7 +913,7 @@ bool QaDatabase::history(qint64 caseId, QList<QaResult> &list, QStringList &runN
     while (query.next())
     {
         list << resultOf(query);
-        runNames << query.value(14).toString();
+        runNames << query.value(15).toString();
     }
     return true;
 }
@@ -1292,13 +1296,142 @@ bool QaDatabase::setResult(qint64 runId, qint64 caseId, const QString &status, c
     // "Not run" takes back when and by whom; a step fails only in a failed case.
     const bool run = status != notRun();
     QSqlQuery query;
-    if (!exec(QStringLiteral("UPDATE results SET status = ?, notes = ?, failed_step = ?, tester = ?, executed = ? WHERE run_id = ? AND case_id = ?"),
-              { status, notes, status == failed() ? qMax(0, failedStep) : 0, run ? tester.trimmed() : QString(), run ? now() : QString(), runId, caseId }, error, &query))
+    // ... and an issue belongs to what failed or was blocked.
+    const bool bad = status == failed() || status == blocked();
+    if (!exec(QStringLiteral("UPDATE results SET status = ?, notes = ?, failed_step = ?, tester = ?, executed = ?, defect = CASE WHEN ? = 1 THEN defect ELSE '' END "
+                             "WHERE run_id = ? AND case_id = ?"),
+              { status, notes, status == failed() ? qMax(0, failedStep) : 0, run ? tester.trimmed() : QString(), run ? now() : QString(), bad ? 1 : 0, runId, caseId },
+              error, &query))
         return false;
     if (query.numRowsAffected() != 1)
     {
         error = QStringLiteral("That test case is not part of the run.");
         return false;
+    }
+    return true;
+}
+
+bool QaDatabase::setDefect(qint64 runId, qint64 caseId, const QString &defect, QString &error)
+{
+    QSqlQuery query;
+    if (!exec(QStringLiteral("SELECT status FROM results WHERE run_id = ? AND case_id = ?"), { runId, caseId }, error, &query))
+        return false;
+    if (!query.next())
+    {
+        error = QStringLiteral("That test case is not part of the run.");
+        return false;
+    }
+    const QString status = query.value(0).toString();
+    if (!defect.trimmed().isEmpty() && status != failed() && status != blocked())
+    {
+        error = QStringLiteral("An issue belongs to a result that failed or was blocked: this one is \"%1\".").arg(status);
+        return false;
+    }
+    return exec(QStringLiteral("UPDATE results SET defect = ? WHERE run_id = ? AND case_id = ?"), { defect.simplified(), runId, caseId }, error);
+}
+
+QString QaDatabase::defectUrl(const QString &issueUrl, const QString &defect)
+{
+    QString reference = defect.trimmed();
+    if (reference.startsWith(QLatin1String("http://"), Qt::CaseInsensitive) || reference.startsWith(QLatin1String("https://"), Qt::CaseInsensitive))
+        return reference.contains(QLatin1Char(' ')) ? QString() : reference;
+    while (reference.startsWith(QLatin1Char('#')))
+        reference.remove(0, 1);
+    const QString where = issueUrl.trimmed();
+    // Only what can be part of an address: a number, a key like "FI-12".
+    static const QString allowed = QStringLiteral("-_.");
+    for (const QChar character : reference)
+        if (!character.isLetterOrNumber() && !allowed.contains(character))
+            return QString();
+    if (reference.isEmpty() || !(where.startsWith(QLatin1String("http://"), Qt::CaseInsensitive) || where.startsWith(QLatin1String("https://"), Qt::CaseInsensitive)))
+        return QString();
+    if (where.contains(QLatin1String("%1")))
+        return QString(where).replace(QLatin1String("%1"), reference);
+    return where + (where.endsWith(QLatin1Char('/')) ? QString() : QStringLiteral("/")) + reference;
+}
+
+int QaRunStanding::passRate() const
+{
+    const int verdicts = counts.passed + counts.failed + counts.blocked;
+    return verdicts == 0 ? -1 : counts.passed * 100 / verdicts;
+}
+
+bool QaDatabase::dashboard(qint64 projectId, QaDashboard &standing, QString &error)
+{
+    standing = QaDashboard();
+    QSqlQuery query;
+    if (!exec(QStringLiteral("SELECT COUNT(*) FROM cases WHERE project_id = ?"), { projectId }, error, &query))
+        return false;
+    if (query.next())
+        standing.cases = query.value(0).toInt();
+
+    // The runs, the oldest first: how it went over time.
+    QList<QaRun> all;
+    if (!runs(projectId, all, error))
+        return false;
+    for (int i = int(all.size()) - 1; i >= 0; --i)
+    {
+        QaRunStanding one;
+        one.run = all.at(i);
+        if (!summary(one.run.id, one.counts, error))
+            return false;
+        standing.runs << one;
+    }
+
+    // What is wrong now: the cases whose newest result failed or was blocked - by issue, those without one last.
+    const QString newest = QStringLiteral("(SELECT r2.run_id FROM results r2 WHERE r2.case_id = c.id AND r2.executed <> '' ORDER BY r2.executed DESC, r2.run_id DESC LIMIT 1)");
+    if (!exec(QStringLiteral("SELECT c.id, c.key, c.title, r.status, r.defect, r.notes, n.name, r.tester, r.executed "
+                             "FROM cases c JOIN results r ON r.case_id = c.id JOIN runs n ON n.id = r.run_id "
+                             "WHERE c.project_id = ? AND r.run_id = %1 AND r.status IN ('Failed', 'Blocked') "
+                             "ORDER BY CASE WHEN r.defect = '' THEN 1 ELSE 0 END, LOWER(r.defect), c.key").arg(newest), { projectId }, error, &query))
+        return false;
+    while (query.next())
+    {
+        QaOpenFailure failure;
+        failure.caseId = query.value(0).toLongLong();
+        failure.key = query.value(1).toString();
+        failure.title = query.value(2).toString();
+        failure.status = query.value(3).toString();
+        failure.defect = query.value(4).toString();
+        failure.notes = query.value(5).toString();
+        failure.runName = query.value(6).toString();
+        failure.tester = query.value(7).toString();
+        failure.executed = query.value(8).toString();
+        standing.open << failure;
+    }
+
+    // What keeps going wrong: failed or blocked in two runs or more.
+    if (!exec(QStringLiteral("SELECT c.id, c.key, c.title, s.name, SUM(CASE WHEN r.status IN ('Failed', 'Blocked') THEN 1 ELSE 0 END) AS bad, COUNT(*) AS ran, "
+                             "(SELECT r3.status FROM results r3 WHERE r3.case_id = c.id AND r3.run_id = %1) "
+                             "FROM results r JOIN cases c ON c.id = r.case_id JOIN suites s ON s.id = c.suite_id "
+                             "WHERE c.project_id = ? AND r.executed <> '' GROUP BY c.id HAVING bad >= 2 ORDER BY bad DESC, c.key").arg(newest), { projectId }, error, &query))
+        return false;
+    while (query.next())
+    {
+        QaCaseStanding one;
+        one.caseId = query.value(0).toLongLong();
+        one.key = query.value(1).toString();
+        one.title = query.value(2).toString();
+        one.suite = query.value(3).toString();
+        one.bad = query.value(4).toInt();
+        one.ran = query.value(5).toInt();
+        one.lastStatus = query.value(6).toString();
+        standing.failing << one;
+    }
+
+    // What nobody has ever run.
+    if (!exec(QStringLiteral("SELECT c.id, c.key, c.title, s.name FROM cases c JOIN suites s ON s.id = c.suite_id "
+                             "WHERE c.project_id = ? AND NOT EXISTS (SELECT 1 FROM results r WHERE r.case_id = c.id AND r.executed <> '') "
+                             "ORDER BY s.position, s.id, c.key"), { projectId }, error, &query))
+        return false;
+    while (query.next())
+    {
+        QaCaseStanding one;
+        one.caseId = query.value(0).toLongLong();
+        one.key = query.value(1).toString();
+        one.title = query.value(2).toString();
+        one.suite = query.value(3).toString();
+        standing.neverRun << one;
     }
     return true;
 }
@@ -1354,6 +1487,7 @@ bool QaDatabase::importJson(const QJsonObject &scripts, QaImportCounts &counts, 
     for (const QJsonValue &part : scripts.value(QLatin1String("components")).toArray())
         parts << part.toString();
     const QString components = componentList(parts.join(QLatin1Char(','))).join(QStringLiteral(", "));
+    const QString issueUrl = scripts.value(QLatin1String("issueUrl")).toString().trimmed();
 
     qint64 projectId = 0;
     if (!exec(QStringLiteral("SELECT id FROM projects WHERE name = ?"), { projectName }, error, &query))
@@ -1367,6 +1501,8 @@ bool QaDatabase::importJson(const QJsonObject &scripts, QaImportCounts &counts, 
             return false;
         if (!components.isEmpty() && !exec(QStringLiteral("UPDATE projects SET components = ? WHERE id = ?"), { components, projectId }, error))
             return false;
+        if (!issueUrl.isEmpty() && !exec(QStringLiteral("UPDATE projects SET issue_url = ? WHERE id = ?"), { issueUrl, projectId }, error))
+            return false;
     }
     else
     {
@@ -1374,6 +1510,7 @@ bool QaDatabase::importJson(const QJsonObject &scripts, QaImportCounts &counts, 
         project.name = projectName;
         project.description = scripts.value(QLatin1String("description")).toString();
         project.components = components;
+        project.issueUrl = issueUrl;
         if (!addProject(project, error))
             return false;
         projectId = project.id;
@@ -1482,7 +1619,7 @@ bool QaDatabase::exportJson(qint64 projectId, QJsonObject &scripts, QString &err
 {
     scripts = QJsonObject();
     QSqlQuery query;
-    if (!exec(QStringLiteral("SELECT name, description, components FROM projects WHERE id = ?"), { projectId }, error, &query))
+    if (!exec(QStringLiteral("SELECT name, description, components, issue_url FROM projects WHERE id = ?"), { projectId }, error, &query))
         return false;
     if (!query.next())
     {
@@ -1493,6 +1630,8 @@ bool QaDatabase::exportJson(qint64 projectId, QJsonObject &scripts, QString &err
     scripts.insert(QStringLiteral("description"), query.value(1).toString());
     if (!componentList(query.value(2).toString()).isEmpty())
         scripts.insert(QStringLiteral("components"), QJsonArray::fromStringList(componentList(query.value(2).toString())));
+    if (!query.value(3).toString().isEmpty())
+        scripts.insert(QStringLiteral("issueUrl"), query.value(3).toString());
 
     QList<QaSuite> suiteList;
     if (!suites(projectId, suiteList, error))

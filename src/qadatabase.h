@@ -38,6 +38,10 @@ struct QaProject
     // What the project is made of, as far as a build of each is tested: "Server,
     // Desktop app, Phone app". A run then says the build of each (QaRun::builds).
     QString components;
+    // Where the project's issues are, with %1 for an issue's number:
+    // "https://github.com/Brute-Squad/FactoryInventory/issues/%1". A failed
+    // result names its issue (QaResult::defect), and this makes a link of it.
+    QString issueUrl;
 };
 
 struct QaSuite
@@ -116,6 +120,7 @@ struct QaResult
     QString tester;
     QString executed;       // ISO 8601, UTC; "" = not run
     QString assigned;       // whose case it is in this run ("" = nobody's in particular)
+    QString defect;         // the issue a failure was reported as: "123", "#123" or a whole address ("" = none yet)
     int     attachments = 0; // how many files go with it
 };
 
@@ -130,6 +135,50 @@ struct QaSummary
 
     // "42 cases: 30 passed, 2 failed, 1 blocked, 0 skipped, 9 not run - 79% done"
     QString text() const;
+};
+
+// How a project stands, over all its runs (QaDatabase::dashboard).
+struct QaRunStanding
+{
+    QaRun     run;
+    QaSummary counts;
+    // Of the cases that have a verdict - passed, failed or blocked - how many
+    // passed, in percent (-1 = none has one yet).
+    int passRate() const;
+};
+
+struct QaCaseStanding
+{
+    qint64  caseId = 0;
+    QString key;
+    QString title;
+    QString suite;
+    int     bad = 0;        // in how many runs it failed or was blocked
+    int     ran = 0;        // in how many it has a result
+    QString lastStatus;     // how it went the last time ("" = never ran)
+};
+
+// A case whose newest result is a failure, or blocked: something is still wrong.
+struct QaOpenFailure
+{
+    qint64  caseId = 0;
+    QString key;
+    QString title;
+    QString status;
+    QString defect;         // "" = no issue yet
+    QString notes;
+    QString runName;
+    QString tester;
+    QString executed;
+};
+
+struct QaDashboard
+{
+    int cases = 0;                      // the project's test cases
+    QList<QaRunStanding>  runs;         // the oldest first: how the pass rate went
+    QList<QaOpenFailure>  open;         // by issue; those without one last
+    QList<QaCaseStanding> failing;      // failed or blocked in two runs or more, the worst first
+    QList<QaCaseStanding> neverRun;     // have no result in any run
 };
 
 struct QaImportCounts
@@ -270,6 +319,15 @@ public:
     bool results(qint64 runId, QList<QaResult> &list, QString &error);      // by suite, then key
     bool setResult(qint64 runId, qint64 caseId, const QString &status, const QString &notes, int failedStep, const QString &tester, QString &error);
     bool summary(qint64 runId, QaSummary &counts, QString &error);
+    // The issue a failed or blocked result was reported as ("" = none). A
+    // result that is neither has none: setResult() takes it away.
+    bool setDefect(qint64 runId, qint64 caseId, const QString &defect, QString &error);
+    // The address of an issue: the project's issueUrl with the number in it -
+    // "#123" and "123" are the same - or the reference itself when it is an
+    // address already. "" = there is nothing to open.
+    static QString defectUrl(const QString &issueUrl, const QString &defect);
+    // How a project stands over all its runs.
+    bool dashboard(qint64 projectId, QaDashboard &standing, QString &error);
 
     // ---- test scripts as a file
     //   { "project": "...", "description": "...",

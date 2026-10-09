@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 
 #include "casepanel.h"
+#include "dashboard.h"
 #include "qabackup.h"
 #include "qaconfig.h"
 #include "qashare.h"
@@ -108,6 +109,13 @@ MainWindow::MainWindow(QaDatabase *database, QWidget *parent)
     m_tabs->setObjectName(QStringLiteral("tabs"));
     m_tabs->addTab(m_case, QStringLiteral("Test Case"));
     m_tabs->addTab(m_runs, QStringLiteral("Test Runs"));
+    m_dashboard = new DashboardPanel(m_database, this);
+    m_tabs->addTab(m_dashboard, QStringLiteral("Dashboard"));
+    // Read when it is looked at: it goes through every run of the project.
+    connect(m_tabs, &QTabWidget::currentChanged, this, [this]() {
+        if (m_tabs->currentWidget() == m_dashboard)
+            m_dashboard->refresh();
+    });
 
     auto *splitter = new QSplitter(this);
     splitter->addWidget(left);
@@ -184,6 +192,8 @@ MainWindow::MainWindow(QaDatabase *database, QWidget *parent)
     connect(m_addToRun, &QAction::triggered, this, &MainWindow::askAddToRun);
     m_components = edit->addAction(QStringLiteral("Project &Components..."));
     connect(m_components, &QAction::triggered, this, &MainWindow::editComponents);
+    m_issues = edit->addAction(QStringLiteral("Project &Issue Tracker..."));
+    connect(m_issues, &QAction::triggered, this, &MainWindow::editIssueTracker);
     m_delete = edit->addAction(QStringLiteral("&Delete..."));
     connect(m_delete, &QAction::triggered, this, &MainWindow::deleteSelected);
 
@@ -509,6 +519,8 @@ void MainWindow::reload()
     if (!m_case->isChanged() && m_case->caseId() != 0)
         m_case->showCase(m_case->caseId());
     m_runs->reload();
+    if (m_tabs->currentWidget() == m_dashboard)
+        m_dashboard->refresh();
     updateTitle();
 }
 
@@ -676,6 +688,15 @@ void MainWindow::onSelected()
             name = item->text(0);
         m_runs->setProject(projectId, name);
     }
+    if (projectId != m_dashboard->projectId())
+    {
+        QString name;
+        if (QTreeWidgetItem *item = find(ProjectItem, projectId))
+            name = item->text(0);
+        m_dashboard->setProject(projectId, name);
+        if (m_tabs->currentWidget() == m_dashboard)
+            m_dashboard->refresh();
+    }
     updateActions();
 }
 
@@ -688,6 +709,7 @@ void MainWindow::updateActions()
     m_rename->setEnabled(project && currentId(CaseItem) == 0);
     m_delete->setEnabled(project);
     m_components->setEnabled(project);
+    m_issues->setEnabled(project);
     const bool cases = !selectedCaseIds().isEmpty();
     m_move->setEnabled(cases);
     m_addToRun->setEnabled(cases);
@@ -950,9 +972,43 @@ void MainWindow::renameSelected()
                     return false;
                 fillTree(ProjectItem, project.id);
                 m_runs->setProject(project.id, renamed.name.trimmed());
+                m_dashboard->setProject(project.id, renamed.name.trimmed());
                 return true;
             });
         }
+    }
+}
+
+// Where the project's issues are, so that the issue a failure was reported as is a link.
+void MainWindow::editIssueTracker()
+{
+    const qint64 projectId = currentId(ProjectItem);
+    QList<QaProject> projects;
+    QString error;
+    m_database->projects(projects, error);
+    for (const QaProject &project : std::as_const(projects))
+    {
+        if (project.id != projectId)
+            continue;
+        askText(QStringLiteral("Project Issue Tracker"), QStringLiteral("The address of an issue of %1, with %2 for its number:").arg(project.name, QStringLiteral("%1")),
+                project.issueUrl.isEmpty() ? QStringLiteral("https://github.com/<owner>/<repository>/issues/%1") : project.issueUrl,
+                [this, project](const QString &address, QString &why) {
+            // Nothing, or an address: what is neither would make links that go nowhere.
+            const bool none = address.isEmpty() || address.contains(QLatin1Char('<'));
+            if (!none && !address.startsWith(QLatin1String("https://"), Qt::CaseInsensitive) && !address.startsWith(QLatin1String("http://"), Qt::CaseInsensitive))
+            {
+                why = QStringLiteral("An address starts with https:// - for example https://github.com/Brute-Squad/FactoryInventory/issues/%1. Leave it empty for none.");
+                return false;
+            }
+            QaProject changed = project;
+            changed.issueUrl = none ? QString() : address;
+            if (!m_database->updateProject(changed, why))
+                return false;
+            m_runs->reload();
+            statusBar()->showMessage(none ? QStringLiteral("An issue of %1 is a number without a link.").arg(project.name)
+                                          : QStringLiteral("Issue 123 of %1 is %2").arg(project.name, QaDatabase::defectUrl(address, QStringLiteral("123"))), 8000);
+            return true;
+        });
     }
 }
 

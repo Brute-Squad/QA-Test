@@ -11,6 +11,7 @@
 #include <QImage>
 #include <QKeyEvent>
 #include <QLabel>
+#include <QLineEdit>
 #include <QListWidget>
 #include <QMessageBox>
 #include <QMimeData>
@@ -107,6 +108,15 @@ RunMode::RunMode(QaDatabase *database, const QaRun &run, const QString &tester, 
     buttons->addWidget(previous);
     buttons->addWidget(new QLabel(QStringLiteral("Failed at step:"), this));
     buttons->addWidget(m_failedStep);
+    // The issue a failure was reported as: stored with F or B.
+    m_defect = new QLineEdit(this);
+    m_defect->setObjectName(QStringLiteral("modeDefect"));
+    m_defect->setMaxLength(200);
+    m_defect->setMaximumWidth(190);
+    m_defect->setPlaceholderText(QStringLiteral("its number: 123"));
+    m_defect->installEventFilter(this);
+    buttons->addWidget(new QLabel(QStringLiteral("Issue:"), this));
+    buttons->addWidget(m_defect);
     buttons->addStretch(1);
     const QStringList captions { QStringLiteral("Passed (P)"), QStringLiteral("Failed (F)"), QStringLiteral("Blocked (B)"), QStringLiteral("Skipped (S)"), QStringLiteral("Not Run (U)") };
     const QStringList statuses { QaDatabase::passed(), QaDatabase::failed(), QaDatabase::blocked(), QaDatabase::skipped(), QaDatabase::notRun() };
@@ -229,7 +239,7 @@ void RunMode::say(const QString &text)
 // clipboard attaches it instead of pasting nothing.
 bool RunMode::eventFilter(QObject *watched, QEvent *event)
 {
-    if (watched == m_notes && event->type() == QEvent::KeyPress)
+    if ((watched == m_notes || watched == m_defect) && event->type() == QEvent::KeyPress)
     {
         auto *key = static_cast<QKeyEvent *>(event);
         if (key->key() == Qt::Key_Escape)
@@ -237,6 +247,8 @@ bool RunMode::eventFilter(QObject *watched, QEvent *event)
             setFocus();
             return true;
         }
+        if (watched == m_defect)
+            return QDialog::eventFilter(watched, event);
         const QMimeData *clip = QGuiApplication::clipboard()->mimeData();
         if (key->matches(QKeySequence::Paste) && clip && clip->hasImage() && !clip->hasText())
         {
@@ -268,6 +280,8 @@ void RunMode::showCase()
         button->setEnabled(has);
     m_notes->setEnabled(has);
     m_failedStep->setEnabled(has);
+    m_defect->setEnabled(has);
+    m_defect->setText(has ? m_result.defect : QString());
     m_steps->setRowCount(0);
     if (!has)
     {
@@ -363,6 +377,8 @@ void RunMode::mark(const QString &status)
         say(error);
         return;
     }
+    if (status == QaDatabase::failed() || status == QaDatabase::blocked())
+        m_database->setDefect(m_run.id, m_result.caseId, m_defect->text(), error);
     setFocus();
     emit stored();
 

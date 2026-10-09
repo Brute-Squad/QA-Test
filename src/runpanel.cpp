@@ -5,6 +5,10 @@
 
 #include <QComboBox>
 #include <QDateTime>
+#include <QDesktopServices>
+#include <QFileDialog>
+#include <QStandardPaths>
+#include <QUrl>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFormLayout>
@@ -71,6 +75,9 @@ void RunPanel::build()
     m_finish = new QPushButton(QStringLiteral("&Finish"), this);
     m_delete = new QPushButton(QStringLiteral("&Delete Run..."), this);
     m_report = new QPushButton(QStringLiteral("&Report..."), this);
+    m_csv = new QPushButton(QStringLiteral("&CSV..."), this);
+    m_csv->setObjectName(QStringLiteral("runCsv"));
+    m_csv->setToolTip(QStringLiteral("The run as a table for a spreadsheet: a line per test case."));
     auto *top = new QHBoxLayout;
     top->addWidget(new QLabel(QStringLiteral("Run:"), this));
     top->addWidget(m_run, 1);
@@ -78,6 +85,7 @@ void RunPanel::build()
     top->addWidget(m_rerun);
     top->addWidget(m_finish);
     top->addWidget(m_report);
+    top->addWidget(m_csv);
     top->addWidget(m_delete);
 
     m_summary = new QLabel(this);
@@ -115,10 +123,10 @@ void RunPanel::build()
     m_builds->setTextInteractionFlags(Qt::TextSelectableByMouse);
     m_builds->hide();
 
-    m_table = new QTableWidget(0, 9, this);
+    m_table = new QTableWidget(0, 10, this);
     m_table->setObjectName(QStringLiteral("runResults"));
     m_table->setHorizontalHeaderLabels({ QStringLiteral("Suite"), QStringLiteral("Key"), QStringLiteral("Title"), QStringLiteral("Result"), QStringLiteral("By"),
-                                         QStringLiteral("When"), QStringLiteral("Notes"), QStringLiteral("For"), QStringLiteral("Files") });
+                                         QStringLiteral("When"), QStringLiteral("Notes"), QStringLiteral("For"), QStringLiteral("Files"), QStringLiteral("Issue") });
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -162,9 +170,23 @@ void RunPanel::build()
     m_problem->setWordWrap(true);
     m_problem->hide();
 
+    // The issue a failure was reported as: its number, or its whole address.
+    m_defect = new QLineEdit(work);
+    m_defect->setObjectName(QStringLiteral("runDefect"));
+    m_defect->setMaxLength(200);
+    m_defect->setMaximumWidth(170);
+    m_defect->setPlaceholderText(QStringLiteral("its number: 123"));
+    m_defect->setToolTip(QStringLiteral("The issue a failed or blocked test case was reported as: stored with Failed or Blocked, and when you leave the field."));
+    m_openDefect = new QPushButton(QStringLiteral("&Open"), work);
+    m_openDefect->setObjectName(QStringLiteral("runOpenDefect"));
+    m_openDefect->setToolTip(QStringLiteral("Open the issue in the browser."));
+
     auto *buttons = new QHBoxLayout;
     buttons->addWidget(new QLabel(QStringLiteral("Failed at step:"), work));
     buttons->addWidget(m_failedStep);
+    buttons->addWidget(new QLabel(QStringLiteral("Issue:"), work));
+    buttons->addWidget(m_defect);
+    buttons->addWidget(m_openDefect);
     buttons->addStretch(1);
     const QStringList captions { QStringLiteral("&Passed"), QStringLiteral("&Failed"), QStringLiteral("&Blocked"), QStringLiteral("S&kipped"), QStringLiteral("Not R&un") };
     const QStringList statuses { QaDatabase::passed(), QaDatabase::failed(), QaDatabase::blocked(), QaDatabase::skipped(), QaDatabase::notRun() };
@@ -211,6 +233,19 @@ void RunPanel::build()
     connect(m_delete, &QPushButton::clicked, this, &RunPanel::deleteRun);
     connect(m_finish, &QPushButton::clicked, this, &RunPanel::toggleFinished);
     connect(m_report, &QPushButton::clicked, this, &RunPanel::showReport);
+    connect(m_csv, &QPushButton::clicked, this, &RunPanel::exportCsv);
+    connect(m_defect, &QLineEdit::editingFinished, this, &RunPanel::storeDefect);
+    connect(m_openDefect, &QPushButton::clicked, this, [this]() {
+        const QString link = defectLink();
+        if (link.isEmpty() || !QDesktopServices::openUrl(QUrl(link)))
+        {
+            m_problem->setText(m_defect->text().trimmed().isEmpty()
+                                   ? QStringLiteral("Type the issue's number first.")
+                                   : QStringLiteral("There is no address for that issue: say where the project's issues are with Edit > Project Issue Tracker... - "
+                                                    "or type the issue's whole address here."));
+            m_problem->show();
+        }
+    });
 
     setProject(0, QString());
 }
@@ -246,6 +281,7 @@ void RunPanel::reload()
     const int before = selectedIndex();
     const qint64 caseId = before >= 0 ? m_results.at(before).caseId : 0;
     const QString typed = m_notes->toPlainText();
+    const QString issue = m_defect->text();
     const int step = m_failedStep->value();
 
     loadRuns(runId());
@@ -254,6 +290,7 @@ void RunPanel::reload()
     if (caseId != 0 && after >= 0 && m_results.at(after).caseId == caseId)
     {
         m_notes->setPlainText(typed);
+        m_defect->setText(issue);
         m_failedStep->setValue(step);
     }
 }
@@ -329,7 +366,7 @@ void RunPanel::showRun()
                                   result.status == QaDatabase::failed() && result.failedStep > 0 ? QStringLiteral("%1 (step %2)").arg(marked(result.status)).arg(result.failedStep)
                                                                                                  : marked(result.status),
                                   result.tester, localTime(result.executed), result.notes.simplified(), result.assigned,
-                                  result.attachments > 0 ? QString::number(result.attachments) : QString() };
+                                  result.attachments > 0 ? QString::number(result.attachments) : QString(), result.defect };
         for (int column = 0; column < cells.size(); ++column)
             m_table->setItem(row, column, new QTableWidgetItem(cells.at(column)));
         if (result.caseId == keep)
@@ -360,11 +397,15 @@ void RunPanel::showSelected()
         button->setEnabled(open);
     m_notes->setEnabled(open);
     m_failedStep->setEnabled(open);
+    m_defect->setEnabled(open);
+    m_openDefect->setEnabled(has);
+    m_csv->setEnabled(currentRun().id != 0);
     if (!has)
     {
         m_caseTitle->setText(currentRun().id == 0 ? QString() : QStringLiteral("Select a test case above."));
         m_preconditions->clear();
         m_notes->clear();
+        m_defect->clear();
         m_failedStep->setRange(0, 0);
         return;
     }
@@ -395,6 +436,7 @@ void RunPanel::showSelected()
     m_notes->setPlainText(result.notes);
     m_failedStep->setRange(0, int(testCase.steps.size()));
     m_failedStep->setValue(result.failedStep);
+    m_defect->setText(result.defect);
 
     // The files that go with the result - which Run Mode attaches, opens and removes.
     QList<QaAttachment> files;
@@ -585,6 +627,9 @@ void RunPanel::store(const QString &status)
         m_problem->show();
         return;
     }
+    // The issue it was reported as goes with a failure and with what is blocked.
+    if (status == QaDatabase::failed() || status == QaDatabase::blocked())
+        m_database->setDefect(run.id, result.caseId, m_defect->text(), error);
 
     // The next case that is not run yet, after this one - or, when there is none, this one stays.
     qint64 next = result.caseId;
@@ -779,7 +824,78 @@ QString RunPanel::reportHtml()
     QaSummary counts;
     QString error;
     m_database->summary(run.id, counts, error);
-    return Report::html(m_projectName, run, counts, m_results);
+    return Report::html(m_projectName, run, counts, m_results, issueUrl());
+}
+
+QString RunPanel::issueUrl() const
+{
+    QList<QaProject> projects;
+    QString error;
+    m_database->projects(projects, error);
+    for (const QaProject &project : std::as_const(projects))
+        if (project.id == m_projectId)
+            return project.issueUrl;
+    return QString();
+}
+
+QString RunPanel::defectLink() const
+{
+    return QaDatabase::defectUrl(issueUrl(), m_defect->text());
+}
+
+// The issue typed for the selected case, stored as the field is left - where the case
+// failed or was blocked; elsewhere it waits for Failed or Blocked to be pressed.
+void RunPanel::storeDefect()
+{
+    const int index = selectedIndex();
+    const QaRun run = currentRun();
+    if (index < 0 || run.id == 0 || !run.finished.isEmpty())
+        return;
+    const QaResult result = m_results.at(index);
+    const QString typed = m_defect->text().simplified();
+    if (typed == result.defect || (result.status != QaDatabase::failed() && result.status != QaDatabase::blocked()))
+        return;
+    QString error;
+    if (!m_database->setDefect(run.id, result.caseId, typed, error))
+    {
+        m_problem->setText(error);
+        m_problem->show();
+        return;
+    }
+    // The table follows; what is typed about the case stays.
+    reload();
+}
+
+QString RunPanel::csv() const
+{
+    return currentRun().id == 0 ? QString() : Report::csv(m_results);
+}
+
+void RunPanel::exportCsv()
+{
+    const QaRun run = currentRun();
+    if (run.id == 0)
+        return;
+    QString name = QStringLiteral("%1 - %2").arg(m_projectName, run.name);
+    for (QChar &character : name)
+        if (!character.isLetterOrNumber() && character != QLatin1Char('-') && character != QLatin1Char('.'))
+            character = QLatin1Char(' ');
+    auto *chooser = new QFileDialog(this, QStringLiteral("Save the Run as CSV"),
+                                    QStringLiteral("%1/%2.csv").arg(QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation),
+                                                                    name.simplified().replace(QLatin1Char(' '), QLatin1Char('-'))),
+                                    QStringLiteral("CSV (*.csv)"));
+    chooser->setAttribute(Qt::WA_DeleteOnClose);
+    chooser->setAcceptMode(QFileDialog::AcceptSave);
+    chooser->setDefaultSuffix(QStringLiteral("csv"));
+    connect(chooser, &QFileDialog::fileSelected, this, [this](const QString &path) {
+        QString error;
+        if (!Report::saveCsv(csv(), path, error))
+        {
+            m_problem->setText(error);
+            m_problem->show();
+        }
+    });
+    chooser->open();
 }
 
 void RunPanel::showReport()

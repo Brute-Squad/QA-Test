@@ -18,6 +18,7 @@ class QLabel;
 class QTimer;
 class QTreeWidget;
 class QTreeWidgetItem;
+class DashboardPanel;
 class RunPanel;
 
 // The window: on the left the projects with their suites and test cases -
@@ -70,6 +71,7 @@ public:
     QTreeWidget *tree() const { return m_tree; }
     CasePanel *casePanel() const { return m_case; }
     RunPanel *runPanel() const { return m_runs; }
+    DashboardPanel *dashboard() const { return m_dashboard; }
     bool selectCase(const QString &key);
 
     // ---- finding and organising: what the menus do, once their question is answered.
@@ -118,6 +120,7 @@ private:
     QList<qint64> selectedIds(Kind kind) const;
     void refill();
     void editComponents();
+    void editIssueTracker();
     void deleteSelected();
     void askText(const QString &title, const QString &label, const QString &text, std::function<bool(const QString &, QString &)> store);
     void say(const QString &title, const QString &text, const QString &details = QString());
@@ -127,6 +130,7 @@ private:
     QTabWidget  *m_tabs = nullptr;
     CasePanel   *m_case = nullptr;
     RunPanel    *m_runs = nullptr;
+    DashboardPanel *m_dashboard = nullptr;
     bool         m_filling = false;
     QString      m_why;             // why this database
     QString      m_configFile;
@@ -155,6 +159,7 @@ private:
     QComboBox *m_tagFilter = nullptr;
     QLabel    *m_found = nullptr;
     QAction *m_components = nullptr;
+    QAction *m_issues = nullptr;
     QAction *m_delete = nullptr;
     QAction *m_export = nullptr;
 };

@@ -47,7 +47,42 @@ namespace
     }
 }
 
-QString Report::html(const QString &projectName, const QaRun &run, const QaSummary &counts, const QList<QaResult> &results)
+QString Report::csv(const QList<QaResult> &results)
+{
+    const auto cell = [](const QString &text) {
+        // In quotation marks when it has what would part it: a comma, a mark, a line break - or blanks at its ends.
+        const bool quote = text.contains(QLatin1Char(',')) || text.contains(QLatin1Char('"')) || text.contains(QLatin1Char('\n')) || text.contains(QLatin1Char('\r'))
+                           || text != text.trimmed();
+        return quote ? QLatin1Char('"') + QString(text).replace(QLatin1Char('"'), QStringLiteral("\"\"")) + QLatin1Char('"') : text;
+    };
+    QString csv = QStringLiteral("Suite,Key,Title,Priority,Run on,Result,Failed at step,By,When,For,Issue,Files,Notes\r\n");
+    for (const QaResult &result : results)
+    {
+        const QDateTime when = QDateTime::fromString(result.executed, Qt::ISODate).toLocalTime();
+        const QStringList cells { result.suiteName, result.caseKey, result.caseTitle, result.priority, result.area, result.status,
+                                  result.failedStep > 0 ? QString::number(result.failedStep) : QString(), result.tester,
+                                  when.isValid() ? when.toString(QStringLiteral("yyyy-MM-dd HH:mm")) : QString(), result.assigned, result.defect,
+                                  result.attachments > 0 ? QString::number(result.attachments) : QString(), result.notes };
+        QStringList line;
+        for (const QString &text : cells)
+            line << cell(text);
+        csv += line.join(QLatin1Char(',')) + QStringLiteral("\r\n");
+    }
+    return csv;
+}
+
+bool Report::saveCsv(const QString &csv, const QString &path, QString &error)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate) || file.write("\xEF\xBB\xBF") < 0 || file.write(csv.toUtf8()) < 0)
+    {
+        error = QStringLiteral("%1 could not be written: %2").arg(path, file.errorString());
+        return false;
+    }
+    return true;
+}
+
+QString Report::html(const QString &projectName, const QaRun &run, const QaSummary &counts, const QList<QaResult> &results, const QString &issueUrl)
 {
     QString html = QStringLiteral(
         "<html><head><meta charset=\"utf-8\"><style>"
@@ -85,12 +120,17 @@ QString Report::html(const QString &projectName, const QaRun &run, const QaSumma
     {
         if (result.status != QaDatabase::failed() && result.status != QaDatabase::blocked())
             continue;
-        trouble += QStringLiteral("<tr><td>%1</td><td>%2</td><td>%3</td><td>%4</td></tr>")
-                       .arg(escaped(result.caseKey), escaped(result.caseTitle), escaped(resultText(result)), escaped(result.notes) + filesText(result));
+        // The issue it was reported as: a link, where the project says where its issues are.
+        const QString url = QaDatabase::defectUrl(issueUrl, result.defect);
+        const QString issue = result.defect.isEmpty() ? QString()
+                              : url.isEmpty() ? escaped(result.defect) : QStringLiteral("<a href=\"%1\">%2</a>").arg(url.toHtmlEscaped(), escaped(result.defect));
+        trouble += QStringLiteral("<tr><td>%1</td><td>%2</td><td>%3</td><td>%4</td><td>%5</td></tr>")
+                       .arg(escaped(result.caseKey), escaped(result.caseTitle), escaped(resultText(result)), issue, escaped(result.notes) + filesText(result));
     }
     html += QStringLiteral("<h2>Failed and blocked</h2>");
     html += trouble.isEmpty() ? QStringLiteral("<p>None.</p>")
-                              : QStringLiteral("<table><tr><th width=\"14%\">Key</th><th width=\"30%\">Test case</th><th width=\"14%\">Result</th><th>What happened</th></tr>")
+                              : QStringLiteral("<table><tr><th width=\"14%\">Key</th><th width=\"28%\">Test case</th><th width=\"14%\">Result</th><th width=\"10%\">Issue</th>"
+                                               "<th>What happened</th></tr>")
                                     + trouble + QStringLiteral("</table>");
 
     // Every case, suite by suite.
