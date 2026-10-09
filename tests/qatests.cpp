@@ -28,6 +28,10 @@
 //     version      is read - new, changed, not in the file - its version
 //                  against the database's, and the line that says the program
 //                  brought newer scripts than the database has
+//   (pictures)     not a test:  QATestTests --pictures <folder>  draws the
+//                  program's windows as they look on this PC into PNG files,
+//                  without showing anything on the screen - to look at what
+//                  the tests can only read
 //   the window     the program's own window and panels, offscreen, on a
 //                  database in memory: the tree, a case edited and saved, a
 //                  run made and worked through, its report
@@ -73,6 +77,8 @@
 #include <QTextStream>
 #include <QTreeWidget>
 #include <QTreeWidgetItemIterator>
+#include <QRadioButton>
+#include <QUiLoader>
 
 namespace
 {
@@ -691,8 +697,8 @@ namespace
         for (const QString &name : { QString("notes.txt"), QString("other-2026-01-01.sqlite"), QString("qatest-old.sqlite") })
         {
             QFile foreign(backups + "/" + name);
-            foreign.open(QIODevice::WriteOnly);
-            foreign.write("not ours");
+            if (foreign.open(QIODevice::WriteOnly))
+                foreign.write("not ours");
         }
         int removed = 0;
         for (int later = 1; later <= 4; ++later)
@@ -897,8 +903,8 @@ namespace
         // Into a file that is there: its other settings stay.
         {
             QFile ini(configFile);
-            ini.open(QIODevice::WriteOnly | QIODevice::Truncate);
-            ini.write("; ours\r\n[Database]\r\nPath=C:\\old.sqlite\r\nBusyTimeoutSeconds=42\r\n[Backup]\r\nKeep=5\r\n");
+            if (ini.open(QIODevice::WriteOnly | QIODevice::Truncate))
+                ini.write("; ours\r\n[Database]\r\nPath=C:\\old.sqlite\r\nBusyTimeoutSeconds=42\r\n[Backup]\r\nKeep=5\r\n");
         }
         said = window.useSharedDatabase(file, false);
         const QaConfig kept = QaConfigFile::read(configFile);
@@ -1008,8 +1014,8 @@ namespace
         const QString source = folder.filePath("what went wrong.log");
         {
             QFile log(source);
-            log.open(QIODevice::WriteOnly);
-            log.write("line one\nline two\n");
+            if (log.open(QIODevice::WriteOnly))
+                log.write("line one\nline two\n");
         }
         check(db.attachmentsFolder() == folder.filePath("qa/attachments"), "files are kept beside the database: " + db.attachmentsFolder());
         QaAttachment first, second;
@@ -1159,8 +1165,8 @@ namespace
         const QString log = folder.filePath("server.log");
         {
             QFile written(log);
-            written.open(QIODevice::WriteOnly);
-            written.write("what the server said");
+            if (written.open(QIODevice::WriteOnly))
+                written.write("what the server said");
         }
         check(mode->attachFile(log) && fileList->count() == 1 && fileList->item(0)->text() == "server.log" && table->item(2, 8)->text() == "1",
               "a file goes with the result, and the panel counts it");
@@ -1404,8 +1410,8 @@ namespace
         const QString source = folder.filePath("a.log");
         {
             QFile log(source);
-            log.open(QIODevice::WriteOnly);
-            log.write("x");
+            if (log.open(QIODevice::WriteOnly))
+                log.write("x");
         }
         QaAttachment attachment;
         check(db.attach(smoke.id, parts.at(0).id, source, "", attachment, error), "a file on a result of a case that is to go: " + error);
@@ -2074,8 +2080,8 @@ namespace
     {
         QDir().mkpath(QFileInfo(path).absolutePath());
         QFile file(path);
-        file.open(QIODevice::WriteOnly | QIODevice::Truncate);
-        file.write(QJsonDocument(scripts).toJson());
+        if (file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+            file.write(QJsonDocument(scripts).toJson());
     }
 
     void scriptsWindowTests()
@@ -2173,8 +2179,8 @@ namespace
         check(window.openImportPreview(folder.filePath("none.json")) == nullptr, "a file that is not there opens no preview");
         {
             QFile bad(folder.filePath("bad.json"));
-            bad.open(QIODevice::WriteOnly);
-            bad.write("not json");
+            if (bad.open(QIODevice::WriteOnly))
+                bad.write("not json");
         }
         check(window.openImportPreview(folder.filePath("bad.json")) == nullptr && db.projects(projects, error) && projects.size() == 1, "nor one that is no file of scripts");
 
@@ -2210,9 +2216,160 @@ namespace
     }
 }
 
+// ---- pictures --------------------------------------------------------------------------------------
+// The program's windows as they look on this PC, drawn into files. Nothing is shown on the screen
+// (Qt::WA_DontShowOnScreen), nothing is typed or clicked, and the database is one of its own in a
+// temporary folder, filled from the scripts that come with the program.
+namespace
+{
+    void draw(QWidget *widget, const QString &folder, const QString &name)
+    {
+        for (int i = 0; i < 5; ++i)
+            QCoreApplication::processEvents();
+        const QString file = QDir(folder).filePath(name + ".png");
+        QTextStream(stdout) << (widget->grab().save(file) ? "drew " : "could NOT draw ") << QDir::toNativeSeparators(file) << Qt::endl;
+    }
+
+    int pictures(const QString &folder)
+    {
+        QDir().mkpath(folder);
+        QTemporaryDir work;
+        QaDatabase db;
+        db.setUser("jack");
+        QString error, message;
+        const QString scriptsFile = QStringLiteral(QA_SCRIPTS_DIR "/FactoryInventory.json");
+        if (!db.open(work.filePath("qatest.sqlite"), error) || !MainWindow::importFile(db, scriptsFile, message))
+        {
+            QTextStream(stderr) << error << message << Qt::endl;
+            return 1;
+        }
+
+        MainWindow window(&db);
+        window.setAttribute(Qt::WA_DontShowOnScreen);
+        window.resize(1280, 800);
+        window.show();
+        auto *tabs = window.findChild<QTabWidget *>("tabs");
+        window.selectCase("FI-PARTS-001");
+        draw(&window, folder, "1-test-case");
+
+        // A run that is under way: some passed, some failed with an issue, some for somebody.
+        RunPanel *runs = window.runPanel();
+        runs->createRun("Beta 0.2.0", "0.2.0 Beta", "jack", {}, error,
+                        "Server: 0.2.0 Beta, built 2026-10-08 07:50\nDesktop app: 0.2.0 Beta, built 2026-10-09 06:12\nPhone app: 0.2.0 Beta, built 2026-10-09 06:20");
+        QList<QaResult> results;
+        db.results(runs->runId(), results, error);
+        QList<qint64> ids;
+        for (int i = 0; i < results.size(); ++i)
+        {
+            ids << results.at(i).caseId;
+            if (i < 14)
+                db.setResult(runs->runId(), results.at(i).caseId, i == 3 || i == 9 ? "Failed" : i == 6 ? "Blocked" : i == 11 ? "Skipped" : "Passed",
+                             i == 3 ? "The list stayed empty after Save; a restart of the app showed the part." : i == 9 ? "The total was one cent off." : i == 6 ? "No phone at hand." : "",
+                             i == 3 ? 2 : 0, i % 2 ? "lou" : "jack", error);
+            if (i == 3)
+                db.setDefect(runs->runId(), results.at(i).caseId, "112", error);
+        }
+        db.assign(runs->runId(), ids.mid(14, 10), "jack", error);
+        db.assign(runs->runId(), ids.mid(24, 10), "lou", error);
+        if (tabs)
+            tabs->setCurrentIndex(1);
+        window.reload();
+        draw(&window, folder, "2-test-runs");
+        if (tabs)
+            tabs->setCurrentIndex(2);
+        draw(&window, folder, "3-dashboard");
+
+        // Something looked for.
+        if (tabs)
+            tabs->setCurrentIndex(0);
+        if (auto *search = window.findChild<QLineEdit *>("treeSearch"))
+        {
+            search->setText("stock count");
+            draw(&window, folder, "4-search");
+            search->clear();
+        }
+
+        // Run Mode, at the first case that is not run.
+        QList<QaRun> all;
+        db.runs(runs->projectId(), all, error);
+        if (!all.isEmpty())
+        {
+            RunMode mode(&db, all.first(), "jack", ids, ids.value(14));
+            mode.setAttribute(Qt::WA_DontShowOnScreen);
+            mode.show();
+            draw(&mode, folder, "5-run-mode");
+        }
+
+        // What newer scripts would change: a title, a case taken out, a case added.
+        QJsonObject newer;
+        MainWindow::readScripts(scriptsFile, newer, message);
+        {
+            QJsonArray suites = newer.value("suites").toArray();
+            QJsonObject suite = suites.at(2).toObject();
+            QJsonArray cases = suite.value("cases").toArray();
+            QJsonObject first = cases.at(0).toObject();
+            first.insert("title", first.value("title").toString() + ", and its picture");
+            cases.replace(0, first);
+            cases.removeAt(1);
+            cases.append(QJsonObject { { "key", "FI-PARTS-090" }, { "title", "A part's picture is shown in the list" },
+                                       { "steps", QJsonArray { QJsonObject { { "action", "Add a picture" }, { "expected", "It is shown" } } } } });
+            suite.insert("cases", cases);
+            suites.replace(2, suite);
+            newer.insert("suites", suites);
+            newer.insert("version", "2026-11-01");
+        }
+        QaImportPreview preview;
+        if (db.previewImport(newer, preview, error))
+        {
+            ImportPreviewDialog dialog(preview, "FactoryInventory.json");
+            dialog.setAttribute(Qt::WA_DontShowOnScreen);
+            dialog.show();
+            draw(&dialog, folder, "6-import-preview");
+        }
+        // ... and the line that says the program brought them.
+        QDir().mkpath(work.filePath("scripts"));
+        QFile bundled(work.filePath("scripts/FactoryInventory.json"));
+        if (bundled.open(QIODevice::WriteOnly))
+        {
+            bundled.write(QJsonDocument(newer).toJson());
+            bundled.close();
+        }
+        window.setBundledScripts(work.filePath("scripts"));
+        draw(&window, folder, "7-newer-scripts");
+
+        // The installer's page for the database, as its file describes it (the installer puts it into its own window).
+        QFile ui(QStringLiteral(QA_INSTALLER_DIR "/databasepage.ui"));
+        if (ui.open(QIODevice::ReadOnly))
+        {
+            QUiLoader loader;
+            if (QWidget *page = loader.load(&ui))
+            {
+                if (auto *create = page->findChild<QRadioButton *>("createRadio"))
+                    create->setChecked(true);
+                if (auto *path = page->findChild<QLineEdit *>("createPath"))
+                    path->setText("C:\\Users\\jack\\AppData\\Roaming\\QATest\\QATest\\qatest.sqlite");
+                if (auto *path = page->findChild<QLineEdit *>("existingPath"))
+                    path->setText("\\\\nas1\\MyMedia\\QA-Test\\data\\qatest.sqlite");
+                if (auto *problem = page->findChild<QLabel *>("problem"))
+                    problem->setText("That file is there already: use it (the choice below), or choose another name.");
+                page->setAttribute(Qt::WA_DontShowOnScreen);
+                // What the installer's window gives a page, at its smallest.
+                page->resize(480, 250);
+                page->show();
+                draw(page, folder, "8-installer-database-page");
+                delete page;
+            }
+        }
+        return 0;
+    }
+}
+
 int main(int argc, char *argv[])
 {
-    qputenv("QT_QPA_PLATFORM", "offscreen");
+    // Pictures are of the program as it looks here: Windows' own platform, not the tests' one.
+    const bool picturesAsked = argc >= 3 && QByteArray(argv[1]) == "--pictures";
+    if (!picturesAsked)
+        qputenv("QT_QPA_PLATFORM", "offscreen");
     QApplication app(argc, argv);
     // Nothing of the tests is kept in the user's settings.
     QTemporaryDir settings;
@@ -2220,6 +2377,8 @@ int main(int argc, char *argv[])
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settings.path());
     QCoreApplication::setOrganizationName(QStringLiteral("QATestTests"));
     QCoreApplication::setApplicationName(QStringLiteral("QATestTests"));
+    if (picturesAsked)
+        return pictures(QString::fromLocal8Bit(argv[2]));
 
     databaseTests();
     configTests();

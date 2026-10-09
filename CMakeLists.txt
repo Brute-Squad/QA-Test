@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Sql)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Sql UiTools)
 
 # The database, which the program and its tests share.
 add_library(QaData STATIC
@@ -78,8 +78,9 @@ add_executable(QATestTests
     src/report.h
 )
 target_include_directories(QATestTests PRIVATE src)
-target_compile_definitions(QATestTests PRIVATE QA_SCRIPTS_DIR="${CMAKE_SOURCE_DIR}/scripts")
-target_link_libraries(QATestTests PRIVATE QaData Qt6::Gui Qt6::Widgets)
+target_compile_definitions(QATestTests PRIVATE QA_SCRIPTS_DIR="${CMAKE_SOURCE_DIR}/scripts" QA_INSTALLER_DIR="${CMAKE_SOURCE_DIR}/installer")
+# (UiTools: only to draw the installer's page from its .ui file - QATestTests --pictures.)
+target_link_libraries(QATestTests PRIVATE QaData Qt6::Gui Qt6::Widgets Qt6::UiTools)
 
 enable_testing()
 add_test(NAME QATestTests COMMAND QATestTests)

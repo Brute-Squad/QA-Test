@@ -161,6 +161,7 @@ void RunPanel::build()
     m_failedStep->setObjectName(QStringLiteral("runFailedStep"));
     m_failedStep->setSpecialValueText(QStringLiteral("not said"));
     m_failedStep->setToolTip(QStringLiteral("For a failure: the number of the step that did not go as expected."));
+    m_failedStep->setMinimumWidth(m_failedStep->fontMetrics().horizontalAdvance(QStringLiteral("not said")) + 100);
     m_files = new QLabel(work);
     m_files->setObjectName(QStringLiteral("runFiles"));
     m_files->setWordWrap(true);
@@ -174,6 +175,7 @@ void RunPanel::build()
     m_defect = new QLineEdit(work);
     m_defect->setObjectName(QStringLiteral("runDefect"));
     m_defect->setMaxLength(200);
+    m_defect->setMinimumWidth(130);
     m_defect->setMaximumWidth(170);
     m_defect->setPlaceholderText(QStringLiteral("its number: 123"));
     m_defect->setToolTip(QStringLiteral("The issue a failed or blocked test case was reported as: stored with Failed or Blocked, and when you leave the field."));
@@ -373,7 +375,21 @@ void RunPanel::showRun()
             selectRow = row;
     }
     m_table->resizeColumnsToContents();
-    m_table->horizontalHeader()->setSectionResizeMode(6, QHeaderView::Stretch);
+    // Every column in sight: the title takes what the others leave, the notes have a width of their
+    // own (the whole note is under the table), and both are cut short where they are long.
+    for (int column = 0; column < m_table->columnCount(); ++column)
+        m_table->horizontalHeader()->setSectionResizeMode(column, column == 2 ? QHeaderView::Stretch
+                                                                  : column == 0 || column == 6 ? QHeaderView::Interactive : QHeaderView::ResizeToContents);
+    m_table->setColumnWidth(0, 130);
+    m_table->setColumnWidth(6, 140);
+    // For whom, files and issue are there once a case of the run has one: until then they would only take the title's room.
+    for (int column = 7; column <= 9; ++column)
+    {
+        bool used = false;
+        for (int row = 0; row < m_table->rowCount() && !used; ++row)
+            used = m_table->item(row, column) && !m_table->item(row, column)->text().isEmpty();
+        m_table->setColumnHidden(column, !used);
+    }
     m_table->blockSignals(false);
     m_assign->setEnabled(m_table->rowCount() > 0);
     m_mode->setEnabled(m_table->rowCount() > 0 && run.finished.isEmpty());

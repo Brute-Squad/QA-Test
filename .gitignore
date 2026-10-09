@@ -10,3 +10,6 @@ installer/*.log
 
 # Visual Studio's own folder
 .vs/
+
+# Where publish.ps1 put the installer the last time: this PC's own
+installer/publish-to.txt

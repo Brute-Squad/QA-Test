@@ -85,6 +85,7 @@ MainWindow::MainWindow(QaDatabase *database, QWidget *parent)
     m_tagFilter->addItem(QStringLiteral("Any tag"));
     m_found = new QLabel(this);
     m_found->setObjectName(QStringLiteral("treeFound"));
+    m_found->setContentsMargins(6, 0, 0, 0);
     m_found->hide();
     auto *filters = new QHBoxLayout;
     filters->addWidget(m_resultFilter, 1);

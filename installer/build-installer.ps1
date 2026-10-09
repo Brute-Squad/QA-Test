@@ -72,7 +72,7 @@ New-Item -ItemType Directory -Force $data, $meta, $config, $out | Out-Null
 
 # Everything of dist but what is this PC's own: a configuration file, a database,
 # and the runtime's installer (its DLLs go in instead, which needs no rights).
-Copy-Item (Join-Path $dist "*") $data -Recurse -Exclude "QATest.ini", "*.sqlite", "vc_redist*.exe"
+Copy-Item (Join-Path $dist "*") $data -Recurse -Exclude "QATest.ini", "*.sqlite", "vc_redist*.exe", "deployed-*.txt"
 
 # The Visual C++ runtime, beside the program.
 $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
@@ -119,6 +119,9 @@ $ErrorActionPreference = "Continue"
 $packed = $LASTEXITCODE
 $ErrorActionPreference = "Stop"
 if ($packed -ne 0 -or -not (Test-Path $target)) { "binarycreator failed (see installer\binarycreator.log)."; exit 5 }
+
+# The installers of other versions that were made here before are of no use beside this one.
+Get-ChildItem $out -Filter "QATestTracker-*-Setup.exe" | Where-Object { $_.FullName -ne $target } | ForEach-Object { Remove-Item $_.FullName -Force; "removed the older $($_.Name)" }
 
 $files = (Get-ChildItem $data -Recurse -File).Count
 "made installer\out\$(Split-Path -Leaf $target)  ($([math]::Round((Get-Item $target).Length / 1MB, 1)) MB, version $version, $files files)"
