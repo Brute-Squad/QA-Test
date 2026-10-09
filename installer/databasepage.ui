@@ -6,10 +6,13 @@
    <string>Your Database</string>
   </property>
   <layout class="QVBoxLayout" name="layout">
+   <property name="spacing">
+    <number>4</number>
+   </property>
    <item>
     <widget class="QLabel" name="intro">
      <property name="text">
-      <string>QA Test Tracker keeps its test cases, test runs and results in one database file. Start a new one, or use one that is there already - your own from before, or the one your team shares.</string>
+      <string>QA Test Tracker keeps its test cases and results in one database file.</string>
      </property>
      <property name="wordWrap">
       <bool>true</bool>
@@ -27,7 +30,7 @@
      <property name="sizeHint" stdset="0">
       <size>
        <width>20</width>
-       <height>10</height>
+       <height>6</height>
       </size>
      </property>
     </spacer>
@@ -35,7 +38,7 @@
    <item>
     <widget class="QRadioButton" name="createRadio">
      <property name="text">
-      <string>Create a &amp;new database</string>
+      <string>Create a &amp;new database, with the test scripts for Factory Inventory</string>
      </property>
     </widget>
    </item>
@@ -54,16 +57,6 @@
     </layout>
    </item>
    <item>
-    <widget class="QLabel" name="createHint">
-     <property name="text">
-      <string>It starts with the test scripts for Factory Inventory. To share it with others, put it into a folder on a shared drive.</string>
-     </property>
-     <property name="wordWrap">
-      <bool>true</bool>
-     </property>
-    </widget>
-   </item>
-   <item>
     <spacer name="gap2">
      <property name="orientation">
       <enum>Qt::Vertical</enum>
@@ -74,7 +67,7 @@
      <property name="sizeHint" stdset="0">
       <size>
        <width>20</width>
-       <height>10</height>
+       <height>6</height>
       </size>
      </property>
     </spacer>
@@ -82,14 +75,18 @@
    <item>
     <widget class="QRadioButton" name="existingRadio">
      <property name="text">
-      <string>Use a database that is &amp;there already</string>
+      <string>Use a database that is &amp;there already: yours, or your team's shared one</string>
      </property>
     </widget>
    </item>
    <item>
     <layout class="QHBoxLayout" name="existingLine">
      <item>
-      <widget class="QLineEdit" name="existingPath"/>
+      <widget class="QLineEdit" name="existingPath">
+       <property name="placeholderText">
+        <string>\\server\share\qatest.sqlite</string>
+       </property>
+      </widget>
      </item>
      <item>
       <widget class="QPushButton" name="existingBrowse">
@@ -99,16 +96,6 @@
       </widget>
      </item>
     </layout>
-   </item>
-   <item>
-    <widget class="QLabel" name="existingHint">
-     <property name="text">
-      <string>For example the one your team shares: \\server\share\qatest.sqlite. A drive letter of a network drive (M:) is written down as the share's own name, which is the same on every PC.</string>
-     </property>
-     <property name="wordWrap">
-      <bool>true</bool>
-     </property>
-    </widget>
    </item>
    <item>
     <spacer name="gap3">
@@ -121,7 +108,7 @@
      <property name="sizeHint" stdset="0">
       <size>
        <width>20</width>
-       <height>10</height>
+       <height>6</height>
       </size>
      </property>
     </spacer>
@@ -149,7 +136,7 @@
      <property name="sizeHint" stdset="0">
       <size>
        <width>20</width>
-       <height>40</height>
+       <height>10</height>
       </size>
      </property>
     </spacer>

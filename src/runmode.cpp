@@ -106,18 +106,23 @@ RunMode::RunMode(QaDatabase *database, const QaRun &run, const QString &tester, 
     auto *previous = new QPushButton(QString::fromUtf8("\xE2\x86\x90 Previous"), this);
     auto *next = new QPushButton(QString::fromUtf8("Next \xE2\x86\x92"), this);
     buttons->addWidget(previous);
-    buttons->addWidget(new QLabel(QStringLiteral("Failed at step:"), this));
-    buttons->addWidget(m_failedStep);
-    // The issue a failure was reported as: stored with F or B.
+    buttons->addStretch(1);
+    // For a failure: the step that failed, and the issue it was reported as - stored with F or B.
+    m_failedStep->setMinimumWidth(m_failedStep->fontMetrics().horizontalAdvance(QStringLiteral("not said")) + 110);
     m_defect = new QLineEdit(this);
     m_defect->setObjectName(QStringLiteral("modeDefect"));
     m_defect->setMaxLength(200);
-    m_defect->setMaximumWidth(190);
+    m_defect->setMinimumWidth(220);
+    m_defect->setMaximumWidth(320);
     m_defect->setPlaceholderText(QStringLiteral("its number: 123"));
     m_defect->installEventFilter(this);
-    buttons->addWidget(new QLabel(QStringLiteral("Issue:"), this));
-    buttons->addWidget(m_defect);
-    buttons->addStretch(1);
+    auto *failure = new QHBoxLayout;
+    failure->addWidget(new QLabel(QStringLiteral("Failed at step:"), this));
+    failure->addWidget(m_failedStep);
+    failure->addSpacing(16);
+    failure->addWidget(new QLabel(QStringLiteral("Issue:"), this));
+    failure->addWidget(m_defect);
+    failure->addStretch(1);
     const QStringList captions { QStringLiteral("Passed (P)"), QStringLiteral("Failed (F)"), QStringLiteral("Blocked (B)"), QStringLiteral("Skipped (S)"), QStringLiteral("Not Run (U)") };
     const QStringList statuses { QaDatabase::passed(), QaDatabase::failed(), QaDatabase::blocked(), QaDatabase::skipped(), QaDatabase::notRun() };
     const QList<Qt::Key> keys { Qt::Key_P, Qt::Key_F, Qt::Key_B, Qt::Key_S, Qt::Key_U };
@@ -152,6 +157,7 @@ RunMode::RunMode(QaDatabase *database, const QaRun &run, const QString &tester, 
     layout->addWidget(m_before);
     layout->addWidget(m_steps, 1);
     layout->addWidget(m_notes);
+    layout->addLayout(failure);
     layout->addLayout(files);
     layout->addWidget(m_problem);
     layout->addLayout(buttons);

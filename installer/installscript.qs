@@ -81,6 +81,8 @@ function databasePage()
     return gui.pageWidgetByObjectName("DynamicDatabasePage");
 }
 
+// (The page has to fit the installer's window, which is small and cannot be made larger:
+// a line of words per label and per problem. QATestTests --pictures draws it at that size.)
 // What is wrong with the answer ("" = nothing), and the answer itself in the
 // installer's values, for createOperations().
 function checkDatabasePage()
@@ -99,11 +101,11 @@ function checkDatabasePage()
     if (path === "")
         problem = creating ? "Say where the new database is to be." : "Say which database to use.";
     else if (creating && !/\.sqlite$/i.test(path))
-        problem = "Write the file's name too, ending in .sqlite - for example " + path.replace(/\\+$/, "") + "\\qatest.sqlite";
+        problem = "Write the file's name too, ending in .sqlite - like qatest.sqlite.";
     else if (creating && installer.fileExists(path))
-        problem = "There is a database of that name already. To use it, choose \"Use a database that is there already\"; for a new one, choose another name or folder.";
+        problem = "That file is there already: use it (the choice below), or choose another name.";
     else if (!creating && !installer.fileExists(path))
-        problem = "There is no such file. If it is on a shared drive, see that the drive is connected.";
+        problem = "There is no such file. Is the shared drive connected?";
 
     page.problem.text = problem;
     page.complete = (problem === "");

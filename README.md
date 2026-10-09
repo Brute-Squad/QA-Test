@@ -213,9 +213,21 @@ Needs the Qt Installer Framework (`C:\Qt\Tools\QtInstallerFramework`; `-Ifw <its
 
 **The icon** - a clipboard with a checklist - is drawn by a small program, `icons\makeicon.cpp`: `icons\make.bat` builds and runs it and writes `icons\qatest.ico` (the program's file and the installer's) and `icons\qatest-*.png` (the windows'). The files it makes are kept in the folder, so a build does not need it; run it after changing the drawing.
 
+**Only what the program uses is packed.** `build.bat` puts Qt's Core, Gui, Widgets and Sql, the Windows platform and style and SQLite beside the program - not the software OpenGL, the shader compilers, the picture formats, the network and the other databases that `windeployqt` would bring, which were two thirds of what was installed (97 MB then, 32 MB now). The installer itself is 62 MB instead of 77: most of that is the Qt Installer Framework's own program, which every installer made with it carries. It then starts the program from that folder with nothing but Windows on the path: a file that is missing shows there. The installer is not signed: that takes a certificate, which costs money every year.
+
+### Putting it where the testers get it
+
+```
+powershell -ExecutionPolicy Bypass -File installer\publish.ps1 -To M:\QA-Test
+```
+
+makes the installer (as above; `-NoBuild` takes the one that is there) and puts it into that folder of the shared drive with `README.txt` and `SHA256.txt`, reads the copy back to see that it is whole, and takes away the installers of other versions that it put there before. **Nothing else in the folder is touched** - the database, its daily copies and the files of results least of all. The folder is remembered (`installer\publish-to.txt`, this PC's own): the next time `publish.ps1` alone will do.
+
 ## Tests
 
 `build\QATestTests.exe` (run by `build.bat`; exit code 0 = every check passed). It checks the configuration file (network paths, relative paths, what is wrong with a file, two programs on one database), the database (cases, steps, runs, results, what is refused, what a delete takes along, import and export), reads every file in `scripts\` to see that it can be imported and that each case has steps that say what to expect, and drives the program's own window offscreen: the tree, a case edited and saved, a run made and worked through, its report. And keeping the scripts current: versions compared, what a file would add, change and not have - each kind of difference by name - before anything is read, a case that is as the file says left untouched, what is not in the file deleted only when asked, and the window's line for newer scripts with its preview, Import, Cancel and Not Now. And reporting: an issue's address, the issue of a failure and when it goes, how a project stands - pass rates, open failures by issue, what keeps failing, what never ran - as figures and as the Dashboard's document, a run as CSV, and the Dashboard tab following the runs. And finding and organising: words looked for in every part of a case, tags, a run of a tag, several cases moved, put into a run and deleted together, a case and a suite cloned, and the tree's filters. And getting through a run faster: whose a case is, a run of what failed, the build of each component, files that go with a result and what deleting takes of them, and Run Mode worked through - marked, a note asked for, a file attached, a screenshot pasted, the last case. And what a shared database needs: two programs in one file where the second is told that the first stored the case, a database from an older version, the copy of each day and which are kept, a damaged database, a drive letter as the share's name, and the window while the database is away, with somebody else's change, and with File > Use a Shared Database.
+
+**To look at the windows** - which the tests can only read - `QATestTests --pictures <folder>` (with Qt's `bin` on the path) draws them as they look on this PC into PNG files: the Test Case, Test Runs and Dashboard tabs, a search, Run Mode, the preview of an import, the line for newer scripts, and the installer's database page at the size the installer gives it. Nothing is shown on the screen, typed or clicked, and the database is one of its own in a temporary folder. Look at them after changing a window: text that is cut off or a column that is squeezed shows there and nowhere else.
 
 ## Layout
 
@@ -234,7 +246,7 @@ Needs the Qt Installer Framework (`C:\Qt\Tools\QtInstallerFramework`; `-Ifw <its
 | `src/importpreview.*` | What a file of test scripts would change, shown before it is read |
 | `src/main.cpp` | Start-up and the command line |
 | `tests/qatests.cpp` | The tests |
-| `installer/` | The installer: its configuration, its database page, its scripts, and `build-installer.ps1` which makes it |
+| `installer/` | The installer: its configuration, its database page, its scripts, `build-installer.ps1` which makes it and `publish.ps1` which puts it on the shared drive |
 | `icons/` | The icon: the program that draws it, and what it drew |
 | `scripts/FactoryInventory.json` | The test scripts for Factory Inventory |
 | `data/qatest.sqlite` | The database, with those scripts imported |

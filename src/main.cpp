@@ -41,6 +41,7 @@
 #include <QIcon>
 #include <QMessageBox>
 #include <QSettings>
+#include <QImageWriter>
 #include <QStandardPaths>
 #include "qabackup.h"
 #include "qashare.h"
@@ -281,6 +282,12 @@ int main(int argc, char *argv[])
         window.statusBar()->showMessage(brought, 15000);
     if (parser.isSet(smokeOption))
     {
+        // What the program needs of Qt that is not in its own file: a screenshot is written as a PNG.
+        if (!QImageWriter::supportedImageFormats().contains("png"))
+        {
+            err << "This program cannot write PNG pictures: a file of Qt is missing." << Qt::endl;
+            return 1;
+        }
         out << "started on " << QDir::toNativeSeparators(path) << Qt::endl;
         return 0;
     }

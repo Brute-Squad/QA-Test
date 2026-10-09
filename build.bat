@@ -50,13 +50,37 @@ rem starts from the Explorer on a PC that has no Qt. (In a folder of its own: be
 rem the test program those files would keep it from finding the offscreen platform.)
 if not exist dist mkdir dist
 copy /y build\QATest.exe dist\QATest.exe >nul
-if not exist dist\Qt6Core.dll (
-    windeployqt --no-translations dist\QATest.exe >nul
+rem Only what the program uses: Qt's Core, Gui, Widgets and Sql, the Windows platform and
+rem style, and SQLite. Not the software OpenGL and the shader compilers (the program
+rem draws nothing with them), not the pictures' formats (PNG is in Qt itself), not the
+rem network, not the other databases: that is two thirds of what windeployqt brings.
+rem ("deployed-2.txt" marks a folder that was filled this way: an older one is filled anew.)
+if not exist dist\deployed-2.txt (
+    for %%F in (opengl32sw.dll dxcompiler.dll dxil.dll d3dcompiler_47.dll Qt6Network.dll Qt6Svg.dll Qt6Pdf.dll Qt6OpenGL.dll) do if exist dist\%%F del /q dist\%%F
+    for %%D in (imageformats iconengines generic tls networkinformation sqldrivers platforms styles translations) do if exist dist\%%D rmdir /s /q dist\%%D
+    windeployqt --no-translations --no-opengl-sw --no-system-d3d-compiler --no-system-dxc-compiler --skip-plugin-types imageformats,iconengines,generic,tls,networkinformation dist\QATest.exe >nul
     if errorlevel 1 (
         echo Qt's files could not be put beside dist\QATest.exe.
         exit /b 1
     )
+    rem What it brings all the same, and nothing here uses.
+    for %%F in (Qt6Network.dll Qt6Svg.dll Qt6Pdf.dll Qt6OpenGL.dll opengl32sw.dll dxcompiler.dll dxil.dll d3dcompiler_47.dll) do if exist dist\%%F del /q dist\%%F
+    for %%F in (qsqlibase qsqlodbc qsqloci qsqlpsql qsqlmimer qsqlmysql) do if exist dist\sqldrivers\%%F.dll del /q dist\sqldrivers\%%F.dll
+    echo filled by build.bat> dist\deployed-2.txt
 )
+rem Is it whole? It starts, opens a database and can write a picture - with nothing but
+rem Windows and its own folder to find its files in.
+setlocal
+set PATH=%SystemRoot%\System32;%SystemRoot%
+if exist build\smoke.sqlite del /q build\smoke.sqlite
+dist\QATest.exe --db build\smoke.sqlite --smoke >nul
+if %errorlevel% neq 0 (
+    endlocal
+    echo dist\QATest.exe does not start from its own folder: something it needs is missing.
+    exit /b 1
+)
+endlocal
+if exist build\smoke.sqlite del /q build\smoke.sqlite
 rem Its configuration file, to say where the database is: made once, never written over.
 dist\QATest.exe --write-config >nul
 echo The program is dist\QATest.exe
