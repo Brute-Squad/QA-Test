@@ -61,6 +61,11 @@ public:
     bool assignSelected(const QString &tester, QString &error);
     // Run Mode on the cases that are shown, beginning at the selected one (nullptr = no run, or none shown).
     RunMode *openRunMode();
+    // The run that is shown as a table for a spreadsheet (report.h; "" = no run).
+    QString csv() const;
+    // The address of the issue typed for the selected case ("" = none, or the
+    // project does not say where its issues are).
+    QString defectLink() const;
     // Who is testing here.
     QString tester() const { return m_tester; }
 
@@ -87,6 +92,9 @@ private:
     void deleteRun();
     void toggleFinished();
     void showReport();
+    void exportCsv();
+    void storeDefect();
+    QString issueUrl() const;
     QaRun currentRun() const;
     int selectedIndex() const;
 
@@ -111,6 +119,9 @@ private:
     QPushButton    *m_mode = nullptr;
     QLabel         *m_builds = nullptr;
     QLabel         *m_files = nullptr;
+    QLineEdit      *m_defect = nullptr;         // the issue a failure was reported as
+    QPushButton    *m_openDefect = nullptr;
+    QPushButton    *m_csv = nullptr;
     QTableWidget   *m_table = nullptr;
     QLabel         *m_caseTitle = nullptr;
     QLabel         *m_preconditions = nullptr;

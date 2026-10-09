@@ -12,7 +12,16 @@ class QTextBrowser;
 // suite. HTML, black on white whatever the theme: it is a document.
 namespace Report
 {
-    QString html(const QString &projectName, const QaRun &run, const QaSummary &counts, const QList<QaResult> &results);
+    // `issueUrl`: where the project's issues are (QaProject::issueUrl) - a failure's issue is then a link.
+    QString html(const QString &projectName, const QaRun &run, const QaSummary &counts, const QList<QaResult> &results, const QString &issueUrl = QString());
+
+    // A run as a table for a spreadsheet: a line per test case - suite, key,
+    // title, priority, where it is run, result, the step that failed, by
+    // whom, when (local time), for whom, issue, files, notes. CSV as Excel
+    // reads it: commas, text in quotation marks where it needs them, CRLF.
+    QString csv(const QList<QaResult> &results);
+    // Written as UTF-8 with the mark that tells Excel so.
+    bool saveCsv(const QString &csv, const QString &path, QString &error);
 
     // Write a document as an HTML file, or as a PDF (A4). False with the reason.
     bool saveHtml(const QString &html, const QString &path, QString &error);

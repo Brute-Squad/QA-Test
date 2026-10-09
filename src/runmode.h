@@ -6,6 +6,7 @@
 #include <QDialog>
 
 class QLabel;
+class QLineEdit;
 class QListWidget;
 class QPlainTextEdit;
 class QPushButton;
@@ -77,6 +78,7 @@ private:
     QTableWidget   *m_steps = nullptr;
     QPlainTextEdit *m_notes = nullptr;
     QSpinBox       *m_failedStep = nullptr;
+    QLineEdit      *m_defect = nullptr;         // the issue a failure was reported as
     QListWidget    *m_fileList = nullptr;
     QLabel         *m_problem = nullptr;
     QList<QPushButton *> m_statusButtons;

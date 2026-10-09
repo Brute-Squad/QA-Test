@@ -33,7 +33,10 @@ Start **QA Test Tracker** from the Start menu - or, from a build, `dist\QATest.e
   - **Show:** filters by result, and by whose the cases are: **My cases** are those that were assigned to you in this run. Select cases - several with Ctrl or Shift - and **Assign...** says whose they are; the column **For** shows it. "My cases" that are "Not run" is what is left for you to do.
   - **Run Failed Again...** makes a new run of the cases that failed or were blocked in this one: each not run, for whom it was, of the same builds. The run it is made from stays as it is.
   - **Finish** closes a run so that nothing is marked by mistake (**Reopen** takes that back).
+  - **Issue:** the issue a failure was reported as - its number, or its whole address. It is stored with **Failed** or **Blocked**, and when the field is left; **Open** opens it in the browser. A case that passes after all has none.
+  - **CSV...** saves the run as a table for a spreadsheet: a line per test case (below).
   - **Report...** shows the run as a document - what was tested, how it stands, what failed or was blocked with the notes, and every case by suite - to save as HTML or PDF.
+- **Dashboard** tab: how the selected project stands over all its runs (below: *Reporting*).
 - **File > Import Test Scripts...** reads a file of test scripts. Importing a file again brings its cases up to date and adds none twice: a case is known by its key. Results are never touched by an import.
 - **File > Export Project...** writes a project's cases as such a file.
 - **Edit > Delete...** deletes the selected case, suite or project after a question that says what goes with it.
@@ -54,6 +57,19 @@ Start **QA Test Tracker** from the Start menu - or, from a build, `dist\QATest.e
 - **Add to Test Run...** - they join a run that is open, each "Not run"; what is in it already stays as it is.
 - **Delete...** - one question for all of them, saying how many test cases, suites and projects go.
 - **Clone** (Ctrl+D) - a test case once more in its suite: the next free key, "<title> (copy)", its steps, tags and everything that describes it - not how it went, and in no run. A suite is cloned with a clone of each of its cases, as "<name> (copy)".
+
+### Reporting
+
+**The Dashboard tab** is a project over all its test runs, read when the tab is looked at:
+
+- **Test runs** - every run, the oldest first, with what passed, failed, was blocked, skipped and not run, and its **pass rate** as a bar: of the test cases that have a verdict - passed, failed or blocked - how many passed. Under the table the rates in a row, run by run: 33% → 66% → 80%.
+- **Open failures, by issue** - the test cases whose *newest* result is a failure or blocked: what is still wrong. They stand under the issue they were reported as - a link - with how many cases it holds up; those without an issue come last, under "No issue yet". A case that passes in a later run is no open failure any more.
+- **Test cases that keep failing** - failed or blocked in two runs or more, the worst first, with how they went the last time.
+- **Never run** - the test cases no run has a result for.
+
+**Issues.** A failed or blocked result names the issue it was reported as (the Issue field on the Test Runs tab and in Run Mode): `123`, `#123` or a whole address. **Edit > Project Issue Tracker...** says where a project's issues are - the address of one, with `%1` for its number: `https://github.com/Brute-Squad/FactoryInventory/issues/%1` - and the number is then a link: in the Dashboard, in the report of a run, and with **Open**. The scripts for Factory Inventory say that address themselves (`"issueUrl"` in the file). Without it an issue is a number. QA Test Tracker only opens the address in your browser: it does not read or change the issue.
+
+**A run as CSV** (**CSV...** on the Test Runs tab) is a line per test case - Suite, Key, Title, Priority, Run on, Result, Failed at step, By, When, For, Issue, Files, Notes - as Excel and others read it: commas, text in quotation marks where it needs them, UTF-8.
 
 ### Run Mode
 
@@ -141,6 +157,7 @@ Folder=D:\QA backups
   "project": "Factory Inventory",
   "description": "...",
   "components": ["Server", "Desktop app", "Phone app"],
+  "issueUrl": "https://github.com/Brute-Squad/FactoryInventory/issues/%1",
   "suites": [
     { "name": "Parts and stock", "description": "...",
       "cases": [
@@ -179,7 +196,7 @@ Needs the Qt Installer Framework (`C:\Qt\Tools\QtInstallerFramework`; `-Ifw <its
 
 ## Tests
 
-`build\QATestTests.exe` (run by `build.bat`; exit code 0 = every check passed). It checks the configuration file (network paths, relative paths, what is wrong with a file, two programs on one database), the database (cases, steps, runs, results, what is refused, what a delete takes along, import and export), reads every file in `scripts\` to see that it can be imported and that each case has steps that say what to expect, and drives the program's own window offscreen: the tree, a case edited and saved, a run made and worked through, its report. And finding and organising: words looked for in every part of a case, tags, a run of a tag, several cases moved, put into a run and deleted together, a case and a suite cloned, and the tree's filters. And getting through a run faster: whose a case is, a run of what failed, the build of each component, files that go with a result and what deleting takes of them, and Run Mode worked through - marked, a note asked for, a file attached, a screenshot pasted, the last case. And what a shared database needs: two programs in one file where the second is told that the first stored the case, a database from an older version, the copy of each day and which are kept, a damaged database, a drive letter as the share's name, and the window while the database is away, with somebody else's change, and with File > Use a Shared Database.
+`build\QATestTests.exe` (run by `build.bat`; exit code 0 = every check passed). It checks the configuration file (network paths, relative paths, what is wrong with a file, two programs on one database), the database (cases, steps, runs, results, what is refused, what a delete takes along, import and export), reads every file in `scripts\` to see that it can be imported and that each case has steps that say what to expect, and drives the program's own window offscreen: the tree, a case edited and saved, a run made and worked through, its report. And reporting: an issue's address, the issue of a failure and when it goes, how a project stands - pass rates, open failures by issue, what keeps failing, what never ran - as figures and as the Dashboard's document, a run as CSV, and the Dashboard tab following the runs. And finding and organising: words looked for in every part of a case, tags, a run of a tag, several cases moved, put into a run and deleted together, a case and a suite cloned, and the tree's filters. And getting through a run faster: whose a case is, a run of what failed, the build of each component, files that go with a result and what deleting takes of them, and Run Mode worked through - marked, a note asked for, a file attached, a screenshot pasted, the last case. And what a shared database needs: two programs in one file where the second is told that the first stored the case, a database from an older version, the copy of each day and which are kept, a damaged database, a drive letter as the share's name, and the window while the database is away, with somebody else's change, and with File > Use a Shared Database.
 
 ## Layout
 
@@ -193,7 +210,8 @@ Needs the Qt Installer Framework (`C:\Qt\Tools\QtInstallerFramework`; `-Ifw <its
 | `src/casepanel.*` | The Test Case tab |
 | `src/runpanel.*` | The Test Runs tab |
 | `src/runmode.*` | Run Mode: a run's cases one at a time, the result on a key, files that go with it |
-| `src/report.*` | A run as an HTML document; saving it as HTML or PDF |
+| `src/report.*` | A run as an HTML document, saved as HTML or PDF, and as CSV |
+| `src/dashboard.*` | The Dashboard tab: a project over all its runs |
 | `src/main.cpp` | Start-up and the command line |
 | `tests/qatests.cpp` | The tests |
 | `installer/` | The installer: its configuration, its database page, its scripts, and `build-installer.ps1` which makes it |
