@@ -37,7 +37,8 @@ Start **QA Test Tracker** from the Start menu - or, from a build, `dist\QATest.e
   - **CSV...** saves the run as a table for a spreadsheet: a line per test case (below).
   - **Report...** shows the run as a document - what was tested, how it stands, what failed or was blocked with the notes, and every case by suite - to save as HTML or PDF.
 - **Dashboard** tab: how the selected project stands over all its runs (below: *Reporting*).
-- **File > Import Test Scripts...** reads a file of test scripts. Importing a file again brings its cases up to date and adds none twice: a case is known by its key. Results are never touched by an import.
+- **File > Import Test Scripts...** reads a file of test scripts - after showing what that would change (below: *Keeping the scripts current*). Importing a file again brings its cases up to date and adds none twice: a case is known by its key. Results are never touched by an import.
+- **File > Update Test Scripts...** does the same with the scripts that came with the program.
 - **File > Export Project...** writes a project's cases as such a file.
 - **Edit > Delete...** deletes the selected case, suite or project after a question that says what goes with it.
 - **Edit > Project Components...** says what the selected project is made of, parted by commas - `Server, Desktop app, Phone app` - which is what New Run... then asks the builds of. Factory Inventory's scripts say it themselves; none = a run says one build.
@@ -150,11 +151,29 @@ Keep=14
 Folder=D:\QA backups
 ```
 
+## Keeping the scripts current
+
+Test scripts change: cases are added, reworded, moved. A database - a team's, on a shared drive - was filled from the scripts of one day, and the next version of the program brings newer ones.
+
+**A file of scripts says its version** (`"version": "2026-10-09"` - a date, or a number like `1.10`; raise it whenever the file changes), and a project remembers which version it was last brought up to date from. A project's tooltip in the list on the left says it.
+
+**When the program brings newer scripts than the database has**, a line at the top of the window says so, with how much they would bring: *"The test scripts that came with this program are newer than this database's: Factory Inventory - 3 new and 5 changed test cases (version 2026-10-09; the database has 2026-09-01)."* **Show What Would Change...** opens the preview; **Not Now** puts it off until the program is started again. The other way round - a database that is newer than the program - is said too: install the newer program on that PC. A database whose cases differ from scripts *of the same version* is left in peace: the team reworded them on purpose. `QATest --scripts-status` prints the same sentence.
+
+**Nothing is read before it was shown.** Import Test Scripts... and Update Test Scripts... first show:
+
+- which is newer, the file or the database - an **older** file is said to be older;
+- the **new** test cases and suites;
+- the test cases that **would change**, each with what is different: title, steps, priority, where it is run, preconditions, notes, tags, or "moved from Login to Parts";
+- the test cases the database has and **the file does not** - added by the team, or taken out of the scripts since. They **stay as they are** unless the box under the list is ticked, which deletes them with their results in every run.
+
+**Import** then reads the file; **Cancel** leaves the database as it is. A case that is already as the file says is not touched at all - whoever has it open is not disturbed - so "updated" counts only what really changed; where nothing would change, there is nothing to import. What somebody changed in a case the file also has is replaced by what the file says: the preview names those cases first.
+
 ## Test scripts as a file
 
 ```json
 {
   "project": "Factory Inventory",
+  "version": "2026-10-09",
   "description": "...",
   "components": ["Server", "Desktop app", "Phone app"],
   "issueUrl": "https://github.com/Brute-Squad/FactoryInventory/issues/%1",
@@ -196,7 +215,7 @@ Needs the Qt Installer Framework (`C:\Qt\Tools\QtInstallerFramework`; `-Ifw <its
 
 ## Tests
 
-`build\QATestTests.exe` (run by `build.bat`; exit code 0 = every check passed). It checks the configuration file (network paths, relative paths, what is wrong with a file, two programs on one database), the database (cases, steps, runs, results, what is refused, what a delete takes along, import and export), reads every file in `scripts\` to see that it can be imported and that each case has steps that say what to expect, and drives the program's own window offscreen: the tree, a case edited and saved, a run made and worked through, its report. And reporting: an issue's address, the issue of a failure and when it goes, how a project stands - pass rates, open failures by issue, what keeps failing, what never ran - as figures and as the Dashboard's document, a run as CSV, and the Dashboard tab following the runs. And finding and organising: words looked for in every part of a case, tags, a run of a tag, several cases moved, put into a run and deleted together, a case and a suite cloned, and the tree's filters. And getting through a run faster: whose a case is, a run of what failed, the build of each component, files that go with a result and what deleting takes of them, and Run Mode worked through - marked, a note asked for, a file attached, a screenshot pasted, the last case. And what a shared database needs: two programs in one file where the second is told that the first stored the case, a database from an older version, the copy of each day and which are kept, a damaged database, a drive letter as the share's name, and the window while the database is away, with somebody else's change, and with File > Use a Shared Database.
+`build\QATestTests.exe` (run by `build.bat`; exit code 0 = every check passed). It checks the configuration file (network paths, relative paths, what is wrong with a file, two programs on one database), the database (cases, steps, runs, results, what is refused, what a delete takes along, import and export), reads every file in `scripts\` to see that it can be imported and that each case has steps that say what to expect, and drives the program's own window offscreen: the tree, a case edited and saved, a run made and worked through, its report. And keeping the scripts current: versions compared, what a file would add, change and not have - each kind of difference by name - before anything is read, a case that is as the file says left untouched, what is not in the file deleted only when asked, and the window's line for newer scripts with its preview, Import, Cancel and Not Now. And reporting: an issue's address, the issue of a failure and when it goes, how a project stands - pass rates, open failures by issue, what keeps failing, what never ran - as figures and as the Dashboard's document, a run as CSV, and the Dashboard tab following the runs. And finding and organising: words looked for in every part of a case, tags, a run of a tag, several cases moved, put into a run and deleted together, a case and a suite cloned, and the tree's filters. And getting through a run faster: whose a case is, a run of what failed, the build of each component, files that go with a result and what deleting takes of them, and Run Mode worked through - marked, a note asked for, a file attached, a screenshot pasted, the last case. And what a shared database needs: two programs in one file where the second is told that the first stored the case, a database from an older version, the copy of each day and which are kept, a damaged database, a drive letter as the share's name, and the window while the database is away, with somebody else's change, and with File > Use a Shared Database.
 
 ## Layout
 
@@ -212,6 +231,7 @@ Needs the Qt Installer Framework (`C:\Qt\Tools\QtInstallerFramework`; `-Ifw <its
 | `src/runmode.*` | Run Mode: a run's cases one at a time, the result on a key, files that go with it |
 | `src/report.*` | A run as an HTML document, saved as HTML or PDF, and as CSV |
 | `src/dashboard.*` | The Dashboard tab: a project over all its runs |
+| `src/importpreview.*` | What a file of test scripts would change, shown before it is read |
 | `src/main.cpp` | Start-up and the command line |
 | `tests/qatests.cpp` | The tests |
 | `installer/` | The installer: its configuration, its database page, its scripts, and `build-installer.ps1` which makes it |

@@ -1,5 +1,6 @@
 {
   "project": "Factory Inventory",
+  "version": "2026-10-09",
   "components": ["Server", "Desktop app", "Phone app"],
   "issueUrl": "https://github.com/Brute-Squad/FactoryInventory/issues/%1",
   "description": "Manual test scripts for Factory Inventory 0.2.0 Beta: the server, the desktop app and the phone app.",

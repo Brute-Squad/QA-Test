@@ -4,6 +4,7 @@
 #include "qadatabase.h"
 
 #include <QDate>
+#include <QJsonObject>
 #include <QMainWindow>
 
 #include <functional>
@@ -15,10 +16,12 @@ class QLineEdit;
 class QLabel;
 class QTabWidget;
 class QLabel;
+class QPushButton;
 class QTimer;
 class QTreeWidget;
 class QTreeWidgetItem;
 class DashboardPanel;
+class ImportPreviewDialog;
 class RunPanel;
 
 // The window: on the left the projects with their suites and test cases -
@@ -38,6 +41,20 @@ public:
     // Read a file of test scripts into the database; the message says what
     // came of it. False with the reason when the file could not be read.
     static bool importFile(QaDatabase &database, const QString &path, QString &message);
+    // A file of test scripts as it is written; false with the reason.
+    static bool readScripts(const QString &path, QJsonObject &scripts, QString &message);
+
+    // What reading that file would do, shown before it is done (importpreview.h):
+    // Import in that dialog reads it. nullptr - with the reason said - for a
+    // file that cannot be read.
+    ImportPreviewDialog *openImportPreview(const QString &path);
+
+    // The test scripts that came with the program (the folder "scripts" beside
+    // it): where this database has older ones of a project, a line at the top of
+    // the window says so and offers to show what would change.
+    void setBundledScripts(const QString &folder);
+    // That line's words ("" = the database is not behind), and the file it is about.
+    static QString bundledNotice(QaDatabase &database, const QString &folder, QString *file = nullptr);
 
     // For a database that has no project yet: read every file of test scripts in
     // that folder into it - the ones that came with the program. Says what came of
@@ -108,6 +125,8 @@ private:
     void openDatabase();
     void openPath(const QString &path);
     void importScripts();
+    void updateScripts();
+    void updateScriptsNotice();
     void exportProject();
     void whereIsTheDatabase();
     void editConfiguration();
@@ -136,6 +155,12 @@ private:
     QString      m_configFile;
 
     QWidget     *m_lostBar = nullptr;       // shown while the database cannot be reached
+    QWidget     *m_scriptsBar = nullptr;    // shown while the program brings newer test scripts than the database has
+    QLabel      *m_scriptsText = nullptr;
+    QPushButton *m_scriptsShow = nullptr;
+    QString      m_scriptsFolder;
+    QString      m_scriptsFile;
+    bool         m_scriptsLater = false;    // "Not Now" was pressed: not again until the program starts again
     QLabel      *m_lostText = nullptr;
     QTimer      *m_retry = nullptr;
     int          m_backupKeep = 0;

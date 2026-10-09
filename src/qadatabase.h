@@ -42,6 +42,9 @@ struct QaProject
     // "https://github.com/Brute-Squad/FactoryInventory/issues/%1". A failed
     // result names its issue (QaResult::defect), and this makes a link of it.
     QString issueUrl;
+    // The version of the test scripts the project was last brought up to date
+    // from ("version" in the file; "" = the file said none, or none was read).
+    QString scriptsVersion;
 };
 
 struct QaSuite
@@ -186,9 +189,42 @@ struct QaImportCounts
     int projects = 0;       // new ones
     int suites = 0;
     int casesAdded = 0;
-    int casesUpdated = 0;
+    int casesUpdated = 0;   // those that were not as the file says
+    int casesUnchanged = 0; // those that were: they are left alone
+    int casesDeleted = 0;   // those the file does not have, when that was asked for
 
     QString text() const;   // "1 project, 12 suites and 64 test cases were added; 3 test cases were updated."
+};
+
+// What reading a file of test scripts would do to the database, before it is
+// done (QaDatabase::previewImport).
+struct QaCaseChange
+{
+    QString key;
+    QString title;
+    QString suite;
+    QStringList what;       // for a case that would change: "title", "steps", "moved from Login to Parts" ...
+};
+
+struct QaImportPreview
+{
+    QString project;
+    bool    newProject = false;         // the database does not have it yet
+    QString fileVersion;                // the file's "version" ("" = it says none)
+    QString databaseVersion;            // what the project was last brought up to date from
+    QStringList newSuites;
+    QList<QaCaseChange> added;          // in the file, not in the database
+    QList<QaCaseChange> changed;        // in both, and not the same
+    QList<QaCaseChange> missing;        // in the database, not in the file: they stay unless asked otherwise
+    int unchanged = 0;
+
+    // Would reading the file change a test case or add something?
+    bool changesCases() const { return newProject || !newSuites.isEmpty() || !added.isEmpty() || !changed.isEmpty(); }
+    // The file's version against the database's: > 0 = the file is newer,
+    // < 0 = older, 0 = the same, or one of them says none.
+    int versionOrder() const;
+    // "12 new, 3 changed, 66 unchanged; 2 are not in the file."
+    QString summary() const;
 };
 
 class QaDatabase
@@ -337,7 +373,18 @@ public:
     // A project and a suite are found by name, a case by its key in the
     // project: importing a file again brings its cases up to date - text and
     // steps - and adds no second one. Results are left alone.
-    bool importJson(const QJsonObject &scripts, QaImportCounts &counts, QString &error);
+    // A case that is as the file says is left alone: it is not "updated", and
+    // somebody who has it open is not disturbed. `deleteMissing`: the
+    // project's cases that the file does not have are deleted, with their
+    // results - only when asked; else they stay as they are.
+    // The file may say its version ("version": "2026-10-09"): the project
+    // remembers which it was last brought up to date from.
+    bool importJson(const QJsonObject &scripts, QaImportCounts &counts, QString &error, bool deleteMissing = false);
+    // What that would do, without doing it.
+    bool previewImport(const QJsonObject &scripts, QaImportPreview &preview, QString &error);
+    // Two versions - "2026-10-09", "1.10", "12" - by their numbers and words:
+    // < 0, 0 or > 0 as the first is older, the same or newer.
+    static int compareVersions(const QString &first, const QString &second);
     bool exportJson(qint64 projectId, QJsonObject &scripts, QString &error);
 
 private:
