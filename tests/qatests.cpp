@@ -24,11 +24,16 @@
 //                  a project stands over its runs - pass rates, open
 //                  failures by issue, what keeps failing, what never ran -
 //                  a run as CSV, and the Dashboard tab
+//   the scripts'   what a file of test scripts would change, shown before it
+//     version      is read - new, changed, not in the file - its version
+//                  against the database's, and the line that says the program
+//                  brought newer scripts than the database has
 //   the window     the program's own window and panels, offscreen, on a
 //                  database in memory: the tree, a case edited and saved, a
 //                  run made and worked through, its report
 #include "casepanel.h"
 #include "dashboard.h"
+#include "importpreview.h"
 #include "mainwindow.h"
 #include "qabackup.h"
 #include "qaconfig.h"
@@ -40,6 +45,8 @@
 
 #include <QAction>
 #include <QApplication>
+#include <functional>
+#include <QCheckBox>
 #include <QMessageBox>
 #include <QClipboard>
 #include <QImage>
@@ -262,8 +269,9 @@ namespace
             suitesJson.replace(0, login);
             changed.insert("suites", suitesJson);
         }
-        check(db.importJson(changed, counts, error) && counts.projects == 0 && counts.suites == 0 && counts.casesAdded == 1 && counts.casesUpdated == 3
-              && counts.text() == "1 test case was added; 3 test cases were updated.", "imported again: " + error + counts.text());
+        check(db.importJson(changed, counts, error) && counts.projects == 0 && counts.suites == 0 && counts.casesAdded == 1 && counts.casesUpdated == 1
+              && counts.casesUnchanged == 2 && counts.text() == "1 test case was added; 1 test case was updated.",
+              "imported again: what is as the file says is left alone: " + error + counts.text());
         check(db.cases(suites.value(0).id, cases, error) && cases.size() == 3 && cases.at(0).title == "Log in as a user" && cases.at(0).lastStatus == "Passed",
               "the cases are up to date, none is there twice, and what was recorded stays");
         QJsonObject bad = sampleScripts();
@@ -445,6 +453,9 @@ namespace
                 }
             }
             check(total >= 20, QStringLiteral("%1 has %2 test cases").arg(name).arg(total));
+            QList<QaProject> ofFile;
+            db.projects(ofFile, error);
+            check(ofFile.size() == 1 && !ofFile.at(0).scriptsVersion.isEmpty(), name + " says its version (\"version\"): raise it whenever the file changes");
         }
     }
 
@@ -592,9 +603,26 @@ namespace
         lous.key = "S-LOGIN-002";
         check(!lou.saveCase(lous, error) && !lou.saveConflicted() && error.contains("with the key S-LOGIN-002 already"), "a key that is taken is no conflict: " + error);
         // Test scripts that are read in again change their cases too.
-        check(pat.loadCase(second, pats, error) && lou.importJson(sampleScripts(), counts, error), "scripts are imported while a case is open");
+        // ... those that are not as the file says: a case that is, is left alone, and whoever has it open is not disturbed.
+        check(pat.loadCase(second, pats, error) && lou.importJson(sampleScripts(), counts, error) && counts.casesUpdated == 1 && counts.casesUnchanged == 2,
+              "scripts are imported while a case is open: " + counts.text());
         pats.notes = "Mine";
-        check(!pat.saveCase(pats, error) && pat.saveConflicted() && error.startsWith("Somebody else changed this test case at "), "an import is a change by nobody in particular: " + error);
+        check(pat.saveCase(pats, error) && !pat.saveConflicted(), "a case the import left alone is stored as ever: " + error);
+        QJsonObject newer = sampleScripts();
+        {
+            QJsonArray suitesJson = newer.value("suites").toArray();
+            QJsonObject loginJson = suitesJson.at(0).toObject();
+            QJsonArray casesJson = loginJson.value("cases").toArray();
+            QJsonObject wrong = casesJson.at(1).toObject();
+            wrong.insert("title", "A wrong password, twice");
+            casesJson.replace(1, wrong);
+            loginJson.insert("cases", casesJson);
+            suitesJson.replace(0, loginJson);
+            newer.insert("suites", suitesJson);
+        }
+        check(pat.loadCase(second, pats, error) && lou.importJson(newer, counts, error) && counts.casesUpdated == 1, "newer scripts are imported while it is open again");
+        pats.notes = "Mine again";
+        check(!pat.saveCase(pats, error) && pat.saveConflicted() && error.startsWith("Somebody else changed this test case at "), "an import that changes it is a change by nobody in particular: " + error);
         // A case that is gone.
         check(pat.loadCase(id, pats, error) && lou.deleteCase(id, error) && !pat.saveCase(pats, error) && !pat.saveConflicted()
               && error.startsWith("This test case was deleted while you had it open."), "a case that was deleted meanwhile: " + error);
@@ -625,7 +653,7 @@ namespace
         }
         QSqlDatabase::removeDatabase("raw");
         check(dropped, "a database as an older version left it");
-        check(pat.open(file, error) && lou.open(file, error) && pat.loadCase(second, read, error) && read.revision == 1 && read.changedBy.isEmpty() && read.title == "A wrong password",
+        check(pat.open(file, error) && lou.open(file, error) && pat.loadCase(second, read, error) && read.revision == 1 && read.changedBy.isEmpty() && read.title == "A wrong password, twice",
               "is brought up to date when it is opened, by whoever is first - and keeps its cases: " + error);
         read.notes = "After the update";
         check(pat.saveCase(read, error) && read.revision == 2, "and its cases count their changes from then on: " + error);
@@ -1855,6 +1883,331 @@ namespace
               "and again when the window reads the database again");
         tabs->setCurrentIndex(0);
     }
+
+    // The sample scripts with something done to them.
+    QJsonObject editedScripts(const std::function<void(QJsonArray &login, QJsonArray &parts)> &edit, const QString &version = QString())
+    {
+        QJsonObject scripts = sampleScripts();
+        QJsonArray suitesJson = scripts.value("suites").toArray();
+        QJsonObject loginJson = suitesJson.at(0).toObject(), partsJson = suitesJson.at(1).toObject();
+        QJsonArray login = loginJson.value("cases").toArray(), parts = partsJson.value("cases").toArray();
+        edit(login, parts);
+        loginJson.insert("cases", login);
+        partsJson.insert("cases", parts);
+        suitesJson.replace(0, loginJson);
+        suitesJson.replace(1, partsJson);
+        scripts.insert("suites", suitesJson);
+        if (!version.isEmpty())
+            scripts.insert("version", version);
+        return scripts;
+    }
+
+    // What the next version of the sample scripts says: a title and a step changed, a case moved,
+    // one added in a new suite - and one taken out.
+    QJsonObject nextScripts(const QString &version)
+    {
+        QJsonObject scripts = editedScripts([](QJsonArray &login, QJsonArray &parts) {
+            QJsonObject first = login.at(0).toObject();
+            first.insert("title", "Log in as a user");
+            QJsonArray steps = first.value("steps").toArray();
+            steps.append(QJsonObject { { "action", "Log out" }, { "expected", "The login dialog is back" } });
+            first.insert("steps", steps);
+            login.replace(0, first);
+            // The second case of Login goes to Parts; Parts' own is taken out.
+            parts = QJsonArray { login.at(1) };
+            login.removeAt(1);
+        }, version);
+        QJsonArray suitesJson = scripts.value("suites").toArray();
+        suitesJson.append(QJsonObject { { "name", "Stock" }, { "cases", QJsonArray {
+            QJsonObject { { "key", "S-STOCK-001" }, { "title", "Count the stock" }, { "steps", QJsonArray { QJsonObject { { "action", "Count" }, { "expected", "It adds up" } } } } } } } });
+        scripts.insert("suites", suitesJson);
+        return scripts;
+    }
+
+    // ---- the scripts' version, and what a file would change ----------------------------------------
+    void scriptsVersionTests()
+    {
+        check(QaDatabase::compareVersions("2026-10-09", "2026-09-30") > 0 && QaDatabase::compareVersions("2026-10-09", "2026-10-09") == 0
+              && QaDatabase::compareVersions("2026-9-30", "2026-10-01") < 0, "versions that are dates");
+        check(QaDatabase::compareVersions("1.10", "1.9") > 0 && QaDatabase::compareVersions("1.9", "1.10") < 0 && QaDatabase::compareVersions("2", "10") < 0
+              && QaDatabase::compareVersions("1.2", "1.2.1") < 0 && QaDatabase::compareVersions(" 3 ", "3") == 0 && QaDatabase::compareVersions("1.0-beta", "1.0-Beta") == 0
+              && QaDatabase::compareVersions("1.0-alpha", "1.0-beta") < 0, "and numbers: by their value, not as text");
+
+        QaDatabase db;
+        db.setUser("pat");
+        QString error;
+        QaImportCounts counts;
+        QaImportPreview preview;
+        check(db.open(":memory:", error), "a database");
+
+        // ---- a project the database does not have
+        check(!db.previewImport(QJsonObject(), preview, error) && error.contains("names no project"), "what is no file of scripts has no preview: " + error);
+        const QJsonObject first = editedScripts([](QJsonArray &, QJsonArray &) {}, "2026-09-01");
+        QList<QaProject> projects;
+        check(db.previewImport(first, preview, error) && preview.project == "Sample" && preview.newProject && preview.fileVersion == "2026-09-01" && preview.databaseVersion.isEmpty()
+              && preview.added.size() == 3 && preview.changed.isEmpty() && preview.missing.isEmpty() && preview.unchanged == 0 && preview.newSuites.size() == 2
+              && preview.changesCases() && preview.versionOrder() == 0 && db.projects(projects, error) && projects.isEmpty(),
+              "a new project: everything would be added - and nothing was: " + error);
+        check(db.importJson(first, counts, error) && counts.casesAdded == 3 && db.projects(projects, error) && projects.at(0).scriptsVersion == "2026-09-01",
+              "read, the project remembers the file's version: " + projects.value(0).scriptsVersion);
+        const qint64 projectId = projects.value(0).id;
+
+        // ---- the same file again
+        check(db.previewImport(first, preview, error) && !preview.newProject && preview.databaseVersion == "2026-09-01" && preview.versionOrder() == 0 && preview.unchanged == 3
+              && preview.added.isEmpty() && preview.changed.isEmpty() && preview.missing.isEmpty() && preview.newSuites.isEmpty() && !preview.changesCases()
+              && !ImportPreview::worthImporting(preview) && preview.summary() == "3 unchanged.", "the same file again: nothing would change: " + preview.summary());
+        QList<QaSuite> suites;
+        QList<QaCase> login;
+        db.suites(projectId, suites, error);
+        db.cases(suites.at(0).id, login, error);
+        QaCase before, after;
+        db.loadCase(login.at(0).id, before, error);
+        check(db.importJson(first, counts, error) && counts.casesUnchanged == 3 && counts.casesUpdated == 0 && counts.casesAdded == 0
+              && counts.text() == "Nothing changed: the 3 test cases are as the file says." && db.loadCase(login.at(0).id, after, error) && after.revision == before.revision
+              && after.updated == before.updated, "and nothing does: a case that is as the file says is not touched: " + counts.text());
+        QaImportCounts one;
+        one.casesUnchanged = 1;
+        check(one.text() == "Nothing changed: the test case is as the file says." && QaImportCounts().text() == "Nothing was added: the file has no test cases.", "said for one, and for none");
+
+        // ---- a newer file, and something of the team's own in the database
+        QaCase own;
+        own.suiteId = suites.at(0).id;
+        own.key = "S-LOGIN-090";
+        own.title = "Our own case";
+        own.steps << QaStep { "Do it", "Done" };
+        QaRun run;
+        run.projectId = projectId;
+        run.name = "Kept";
+        check(db.saveCase(own, error) && db.createRun(run, {}, error) && db.setResult(run.id, login.at(1).id, "Failed", "Let in", 0, "pat", error), "a case of the team's own, and a run");
+        const QJsonObject next = nextScripts("2026-10-09");
+        check(db.previewImport(next, preview, error) && preview.versionOrder() > 0 && preview.fileVersion == "2026-10-09" && preview.databaseVersion == "2026-09-01",
+              "a newer file is seen to be newer: " + error);
+        check(preview.added.size() == 1 && preview.added.at(0).key == "S-STOCK-001" && preview.added.at(0).suite == "Stock" && preview.newSuites == QStringList({ "Stock" }),
+              "what is new: a case, in a new suite");
+        check(preview.changed.size() == 2 && preview.changed.at(0).key == "S-LOGIN-001" && preview.changed.at(0).title == "Log in as a user"
+              && preview.changed.at(0).what == QStringList({ "title", "steps" }) && preview.changed.at(1).key == "S-LOGIN-002"
+              && preview.changed.at(1).what == QStringList({ "moved from Login to Parts" }), "what would change, and in what: " + preview.changed.value(0).what.join(",")
+              + " / " + preview.changed.value(1).what.join(","));
+        check(preview.missing.size() == 2 && preview.missing.at(0).key == "S-LOGIN-090" && preview.missing.at(1).key == "S-PARTS-001" && preview.unchanged == 0
+              && preview.summary() == "1 new, 2 changed, 0 unchanged; 2 are not in the file.", "what the file does not have: " + preview.summary());
+        check(db.loadCase(login.at(0).id, after, error) && after.title == "Log in" && after.revision == before.revision, "looking changes nothing");
+        // Every kind of difference is named.
+        const QJsonObject every = editedScripts([](QJsonArray &loginCases, QJsonArray &) {
+            QJsonObject caseJson = loginCases.at(0).toObject();
+            caseJson.insert("priority", "Low");
+            caseJson.insert("area", "Phone");
+            caseJson.insert("preconditions", "Another user exists");
+            caseJson.insert("notes", "A note");
+            caseJson.insert("tags", QJsonArray { "smoke" });
+            loginCases.replace(0, caseJson);
+        });
+        check(db.previewImport(every, preview, error) && preview.changed.size() == 1
+              && preview.changed.at(0).what == QStringList({ "priority", "where it is run", "preconditions", "notes", "tags" }) && preview.fileVersion.isEmpty()
+              && preview.versionOrder() == 0, "priority, where it is run, preconditions, notes and tags: " + preview.changed.value(0).what.join(","));
+
+        // ---- the document
+        check(db.previewImport(next, preview, error), "the newer file once more");
+        QString html = ImportPreview::html(preview, "Sample.json");
+        check(html.contains("Test scripts for Sample") && html.contains("The file Sample.json is version <b>2026-10-09</b>.")
+              && html.contains("last brought up to date from version <b>2026-09-01</b>.") && html.contains("<b>The file is newer.</b>"), "the preview says which is newer");
+        check(html.contains("<h2>1 new test case</h2>") && html.contains("<h2>New suites</h2><p>Stock</p>") && html.contains("<h2>2 test cases would change</h2>")
+              && html.contains("<td>title, steps</td>") && html.contains("<td>moved from Login to Parts</td>") && html.contains("<h2>2 test cases are not in the file</h2>")
+              && html.contains("Our own case") && html.contains("<b>stay as they are</b>"), "what is new, what would change and in what, and what is not in the file");
+
+        // ---- read: what is not in the file stays
+        check(db.importJson(next, counts, error) && counts.casesAdded == 1 && counts.casesUpdated == 2 && counts.casesUnchanged == 0 && counts.casesDeleted == 0 && counts.suites == 1
+              && counts.text() == "1 suite and 1 test case were added; 2 test cases were updated.", "the newer file is read: " + error + counts.text());
+        check(db.projects(projects, error) && projects.at(0).scriptsVersion == "2026-10-09" && db.loadCase(own.id, after, error) && after.title == "Our own case"
+              && db.loadCase(login.at(1).id, after, error) && after.suiteId == suites.at(1).id, "the database is of its version, the team's own case stays, the moved one moved");
+        QList<QaResult> results;
+        check(db.results(run.id, results, error) && results.size() == 4, "and what was recorded stays");
+        check(db.previewImport(next, preview, error) && !preview.changesCases() && preview.unchanged == 3 && preview.missing.size() == 2 && preview.versionOrder() == 0
+              && !ImportPreview::worthImporting(preview), "after which the file has nothing more to bring");
+        html = ImportPreview::html(preview, "Sample.json");
+        check(html.contains("<b>Nothing would change:</b> the database's 3 test cases are as the file says.") && html.contains("They are the same version."), "and the preview says so");
+
+        // ---- an older file
+        check(db.previewImport(first, preview, error) && preview.versionOrder() < 0 && ImportPreview::html(preview, "Old.json").contains("<b>The file is OLDER than the database's:</b>"),
+              "an older file is said to be older");
+        // ---- only the version is new
+        const QJsonObject onlyVersion = nextScripts("2026-11-01");
+        check(db.previewImport(onlyVersion, preview, error) && !preview.changesCases() && preview.versionOrder() > 0 && ImportPreview::worthImporting(preview)
+              && ImportPreview::html(preview, "x.json").contains("Import only marks the database as being of the file's version."), "a file that only has a newer version");
+        // A version may be a number.
+        QJsonObject numbered = nextScripts("x");
+        numbered.insert("version", 7);
+        check(db.previewImport(numbered, preview, error) && preview.fileVersion == "7", "a version written as a number: " + preview.fileVersion);
+
+        // ---- read with what is not in the file deleted
+        check(db.importJson(next, counts, error, true) && counts.casesDeleted == 2 && counts.casesUnchanged == 3 && counts.text() == "2 test cases were deleted."
+              && !db.loadCase(own.id, after, error) && db.results(run.id, results, error) && results.size() == 2, "asked to, the import deletes what the file does not have: " + counts.text());
+        check(db.previewImport(next, preview, error) && preview.missing.isEmpty() && preview.summary() == "3 unchanged.", "and then the database is the file");
+
+        // ---- written back, a project says its version
+        QJsonObject written;
+        check(db.exportJson(projectId, written, error) && written.value("version").toString() == "2026-10-09", "a project is exported with its scripts' version");
+
+        // ---- a database from before the versions
+        QTemporaryDir folder;
+        const QString path = folder.filePath("qatest.sqlite");
+        QaDatabase onDisk;
+        check(onDisk.open(path, error) && onDisk.importJson(first, counts, error), "a database in a file");
+        onDisk.close();
+        bool dropped = false;
+        {
+            QSqlDatabase raw = QSqlDatabase::addDatabase("QSQLITE", "raw5");
+            raw.setDatabaseName(path);
+            if (raw.open())
+            {
+                QSqlQuery query(raw);
+                dropped = query.exec("ALTER TABLE projects DROP COLUMN scripts_version");
+            }
+            raw.close();
+        }
+        QSqlDatabase::removeDatabase("raw5");
+        check(dropped && onDisk.open(path, error) && onDisk.projects(projects, error) && projects.at(0).scriptsVersion.isEmpty() && onDisk.previewImport(first, preview, error)
+              && preview.databaseVersion.isEmpty() && preview.versionOrder() == 0 && !preview.changesCases() && ImportPreview::worthImporting(preview),
+              "a database from an older version has scripts of no version, and a file can give it one: " + error);
+    }
+
+    void writeScripts(const QString &path, const QJsonObject &scripts)
+    {
+        QDir().mkpath(QFileInfo(path).absolutePath());
+        QFile file(path);
+        file.open(QIODevice::WriteOnly | QIODevice::Truncate);
+        file.write(QJsonDocument(scripts).toJson());
+    }
+
+    void scriptsWindowTests()
+    {
+        QTemporaryDir folder;
+        const QString bundled = folder.filePath("scripts");
+        const QString file = bundled + "/Sample.json";
+        QaDatabase db;
+        db.setUser("pat");
+        QString error;
+        QaImportCounts counts;
+        const QJsonObject first = editedScripts([](QJsonArray &, QJsonArray &) {}, "2026-09-01");
+        check(db.open(":memory:", error) && db.importJson(first, counts, error), "a database with the first scripts: " + error);
+
+        // ---- the line that says the program brought newer ones
+        QString about;
+        check(MainWindow::bundledNotice(db, bundled, &about).isEmpty() && about.isEmpty(), "a program that brought no scripts says nothing");
+        writeScripts(file, first);
+        check(MainWindow::bundledNotice(db, bundled, &about).isEmpty() && about.isEmpty(), "nor one that brought the ones the database has");
+        writeScripts(file, nextScripts("2026-10-09"));
+        QString notice = MainWindow::bundledNotice(db, bundled, &about);
+        check(notice == "The test scripts that came with this program are newer than this database's: Sample - 1 new and 2 changed test cases (version 2026-10-09; the database has 2026-09-01)."
+              && about == file, "newer ones are said, with how much they would bring: " + notice);
+        writeScripts(bundled + "/Other.json", QJsonObject { { "project", "Other" }, { "version", "1" }, { "suites", QJsonArray {
+            QJsonObject { { "name", "Only" }, { "cases", QJsonArray { QJsonObject { { "key", "O-1" }, { "title", "One" } } } } } } } });
+        check(MainWindow::bundledNotice(db, bundled, &about) == notice && about == file, "a project the database does not have is not behind in anything");
+        QFile::remove(bundled + "/Other.json");
+
+        MainWindow window(&db);
+        auto *bar = window.findChild<QWidget *>("scriptsBar");
+        auto *text = window.findChild<QLabel *>("scriptsText");
+        auto *show = window.findChild<QPushButton *>("scriptsShow");
+        auto *later = window.findChild<QPushButton *>("scriptsLater");
+        QTreeWidget *tree = window.tree();
+        check(bar && text && show && later && bar->isHidden(), "the window's line for it, hidden while there is nothing to say");
+        if (!bar || !text || !show || !later)
+            return;
+        check(tree->topLevelItem(0)->toolTip(0).endsWith("Test scripts: version 2026-09-01"), "a project says which scripts it has: " + tree->topLevelItem(0)->toolTip(0));
+        window.setBundledScripts(bundled);
+        check(!bar->isHidden() && text->text() == notice && !show->isHidden(), "the window says it, and offers to show what would change");
+
+        // ---- what would change, before it is read
+        show->click();
+        auto *dialog = window.findChild<ImportPreviewDialog *>("importPreview");
+        auto *view = dialog ? dialog->findChild<QTextBrowser *>("previewView") : nullptr;
+        auto *deleteBox = dialog ? dialog->findChild<QCheckBox *>("previewDelete") : nullptr;
+        auto *import = dialog ? dialog->findChild<QPushButton *>("previewImport") : nullptr;
+        check(dialog && view && deleteBox && import, "the preview opens");
+        if (!dialog || !view || !deleteBox || !import)
+            return;
+        check(view->toPlainText().contains("Test scripts for Sample") && view->toPlainText().contains("The file is newer.") && view->toPlainText().contains("1 new test case")
+              && view->toPlainText().contains("2 test cases would change") && view->toPlainText().contains("moved from Login to Parts")
+              && view->toPlainText().contains("1 test case is not in the file"), "with what is new, what would change and what is not in the file");
+        check(import->isEnabled() && import->text() == "&Import" && !deleteBox->isHidden() && !deleteBox->isChecked() && !dialog->deleteMissing()
+              && deleteBox->text() == "Also &delete the test case that is not in the file, with its results in every test run", "Import, and - not ticked - what else could go");
+        deleteBox->setChecked(true);
+        check(import->text() == "&Import and Delete" && dialog->deleteMissing(), "ticked, the button says that it deletes");
+        deleteBox->setChecked(false);
+        // Cancel reads nothing.
+        dialog->reject();
+        QList<QaProject> projects;
+        check(db.projects(projects, error) && projects.at(0).scriptsVersion == "2026-09-01" && !bar->isHidden() && tree->topLevelItem(0)->childCount() == 2, "Cancel leaves the database as it is");
+
+        // Import reads it.
+        ImportPreviewDialog *again = window.openImportPreview(file);
+        check(again != nullptr, "the preview once more");
+        if (!again)
+            return;
+        again->accept();
+        check(db.projects(projects, error) && projects.at(0).scriptsVersion == "2026-10-09" && bar->isHidden() && window.tree()->topLevelItem(0)->childCount() == 3
+              && window.tree()->topLevelItem(0)->toolTip(0).endsWith("Test scripts: version 2026-10-09"), "Import reads the file: the database is up to date, and the line goes");
+        QList<QaSuite> suites;
+        QList<QaCase> parts;
+        db.suites(projects.at(0).id, suites, error);
+        db.cases(suites.at(1).id, parts, error);
+        check(parts.size() == 2 && parts.at(0).key == "S-LOGIN-002" && parts.at(1).key == "S-PARTS-001", "what is not in the file stayed");
+
+        // ---- nothing more to bring
+        ImportPreviewDialog *nothing = window.openImportPreview(file);
+        auto *nothingView = nothing ? nothing->findChild<QTextBrowser *>("previewView") : nullptr;
+        auto *nothingImport = nothing ? nothing->findChild<QPushButton *>("previewImport") : nullptr;
+        auto *nothingDelete = nothing ? nothing->findChild<QCheckBox *>("previewDelete") : nullptr;
+        check(nothing && nothingView && nothingImport && nothingDelete && nothingView->toPlainText().contains("Nothing would change:") && !nothingImport->isEnabled(),
+              "read again, there is nothing to import, and no Import to press");
+        if (nothing && nothingImport && nothingDelete)
+        {
+            // ... but what is not in the file can still be asked to go.
+            nothingDelete->setChecked(true);
+            check(nothingImport->isEnabled() && nothing->deleteMissing(), "unless what the file does not have is to go");
+            nothing->accept();
+            check(db.cases(suites.at(1).id, parts, error) && parts.size() == 1 && parts.at(0).key == "S-LOGIN-002", "which then goes");
+        }
+
+        // ---- a file that cannot be read
+        check(window.openImportPreview(folder.filePath("none.json")) == nullptr, "a file that is not there opens no preview");
+        {
+            QFile bad(folder.filePath("bad.json"));
+            bad.open(QIODevice::WriteOnly);
+            bad.write("not json");
+        }
+        check(window.openImportPreview(folder.filePath("bad.json")) == nullptr && db.projects(projects, error) && projects.size() == 1, "nor one that is no file of scripts");
+
+        // ---- a program that is older than the database
+        writeScripts(file, first);
+        window.setBundledScripts(bundled);
+        check(!bar->isHidden() && text->text().startsWith("This database's test scripts are newer than those this program brings: Sample (the database has version 2026-10-09, this program brings 2026-09-01).")
+              && text->text().contains("There is a newer QA Test Tracker") && show->isHidden(), "an older program is told that it is: " + text->text());
+        // Not Now is for this start of the program.
+        writeScripts(file, nextScripts("2026-12-01"));
+        QaCase changed;
+        db.loadCase(parts.at(0).id, changed, error);
+        changed.title = "Changed here";
+        db.saveCase(changed, error);
+        window.setBundledScripts(bundled);
+        check(!bar->isHidden() && text->text().contains("Sample - 1 changed test case (version 2026-12-01; the database has 2026-10-09)") && !show->isHidden(),
+              "newer ones again: " + text->text());
+        later->click();
+        window.setBundledScripts(bundled);
+        check(bar->isHidden(), "Not Now: not again until the program is started again");
+
+        // ---- of the same version, what differs was changed here on purpose
+        QaDatabase same;
+        check(same.open(":memory:", error) && same.importJson(nextScripts("2026-12-01"), counts, error), "a database of the program's version");
+        QList<QaSuite> sameSuites;
+        QList<QaCase> sameCases;
+        same.projects(projects, error);
+        same.suites(projects.at(0).id, sameSuites, error);
+        same.cases(sameSuites.at(0).id, sameCases, error);
+        same.loadCase(sameCases.at(0).id, changed, error);
+        changed.title = "Reworded by the team";
+        check(same.saveCase(changed, error) && MainWindow::bundledNotice(same, bundled, &about).isEmpty(), "a case the team reworded is not the program's business: " + error);
+    }
 }
 
 int main(int argc, char *argv[])
@@ -1881,6 +2234,8 @@ int main(int argc, char *argv[])
     findWindowTests();
     reportTests();
     reportWindowTests();
+    scriptsVersionTests();
+    scriptsWindowTests();
 
     QTextStream out(stdout);
     if (g_failures == 0)

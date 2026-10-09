@@ -2,6 +2,7 @@
 
 #include "casepanel.h"
 #include "dashboard.h"
+#include "importpreview.h"
 #include "qabackup.h"
 #include "qaconfig.h"
 #include "qashare.h"
@@ -147,6 +148,31 @@ MainWindow::MainWindow(QaDatabase *database, QWidget *parent)
     auto *centralLayout = new QVBoxLayout(central);
     centralLayout->setContentsMargins(0, 0, 0, 0);
     centralLayout->addWidget(m_lostBar);
+
+    // Another line: the program brought newer test scripts than the database has.
+    m_scriptsBar = new QWidget(this);
+    m_scriptsBar->setObjectName(QStringLiteral("scriptsBar"));
+    m_scriptsText = new QLabel(m_scriptsBar);
+    m_scriptsText->setObjectName(QStringLiteral("scriptsText"));
+    m_scriptsText->setWordWrap(true);
+    m_scriptsShow = new QPushButton(QStringLiteral("Show What Would &Change..."), m_scriptsBar);
+    m_scriptsShow->setObjectName(QStringLiteral("scriptsShow"));
+    auto *later = new QPushButton(QStringLiteral("Not Now"), m_scriptsBar);
+    later->setObjectName(QStringLiteral("scriptsLater"));
+    auto *scriptsLayout = new QHBoxLayout(m_scriptsBar);
+    scriptsLayout->addWidget(m_scriptsText, 1);
+    scriptsLayout->addWidget(m_scriptsShow);
+    scriptsLayout->addWidget(later);
+    m_scriptsBar->hide();
+    connect(m_scriptsShow, &QPushButton::clicked, this, [this]() {
+        if (!m_scriptsFile.isEmpty())
+            openImportPreview(m_scriptsFile);
+    });
+    connect(later, &QPushButton::clicked, this, [this]() {
+        m_scriptsLater = true;
+        m_scriptsBar->hide();
+    });
+    centralLayout->addWidget(m_scriptsBar);
     centralLayout->addWidget(splitter, 1);
     setCentralWidget(central);
     resize(1280, 800);
@@ -162,6 +188,7 @@ MainWindow::MainWindow(QaDatabase *database, QWidget *parent)
     connect(file->addAction(QStringLiteral("Edit &Configuration File...")), &QAction::triggered, this, &MainWindow::editConfiguration);
     file->addSeparator();
     connect(file->addAction(QStringLiteral("&Import Test Scripts...")), &QAction::triggered, this, &MainWindow::importScripts);
+    connect(file->addAction(QStringLiteral("&Update Test Scripts...")), &QAction::triggered, this, &MainWindow::updateScripts);
     m_export = file->addAction(QStringLiteral("&Export Project..."));
     connect(m_export, &QAction::triggered, this, &MainWindow::exportProject);
     file->addSeparator();
@@ -577,7 +604,9 @@ void MainWindow::fillTree(Kind selectKind, qint64 selectId)
         auto *projectItem = new QTreeWidgetItem(m_tree, { project.name });
         projectItem->setData(0, kKindRole, ProjectItem);
         projectItem->setData(0, kIdRole, project.id);
-        projectItem->setToolTip(0, project.description);
+        projectItem->setToolTip(0, project.scriptsVersion.isEmpty() ? project.description
+                                   : project.description + (project.description.isEmpty() ? QString() : QStringLiteral("\n"))
+                                         + QStringLiteral("Test scripts: version %1").arg(project.scriptsVersion));
         QFont bold = projectItem->font(0);
         bold.setBold(true);
         projectItem->setFont(0, bold);
@@ -794,6 +823,7 @@ void MainWindow::openPath(const QString &path)
     reload();
     statusBar()->showMessage(QStringLiteral("Opened %1").arg(QDir::toNativeSeparators(path)), 6000);
     dailyBackup();
+    updateScriptsNotice();
 }
 
 void MainWindow::newDatabase()
@@ -825,7 +855,7 @@ void MainWindow::openDatabase()
     chooser->open();
 }
 
-bool MainWindow::importFile(QaDatabase &database, const QString &path, QString &message)
+bool MainWindow::readScripts(const QString &path, QJsonObject &scripts, QString &message)
 {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly))
@@ -842,9 +872,18 @@ bool MainWindow::importFile(QaDatabase &database, const QString &path, QString &
                                                                                                                        : parse.errorString());
         return false;
     }
+    scripts = document.object();
+    return true;
+}
+
+bool MainWindow::importFile(QaDatabase &database, const QString &path, QString &message)
+{
+    QJsonObject scripts;
+    if (!readScripts(path, scripts, message))
+        return false;
     QaImportCounts counts;
     QString error;
-    if (!database.importJson(document.object(), counts, error))
+    if (!database.importJson(scripts, counts, error))
     {
         message = error;
         return false;
@@ -853,18 +892,135 @@ bool MainWindow::importFile(QaDatabase &database, const QString &path, QString &
     return true;
 }
 
+// First what the file would do, then - if the user says so - the file.
+ImportPreviewDialog *MainWindow::openImportPreview(const QString &path)
+{
+    QJsonObject scripts;
+    QaImportPreview preview;
+    QString message;
+    if (!readScripts(path, scripts, message) || !m_database->previewImport(scripts, preview, message))
+    {
+        say(QStringLiteral("Import Test Scripts"), QStringLiteral("Nothing was imported."), message);
+        return nullptr;
+    }
+    // What is being typed is stored first: the file may be about that very case.
+    if (m_case->isChanged() && m_case->caseId() != 0)
+        m_case->save();
+    auto *dialog = new ImportPreviewDialog(preview, QFileInfo(path).fileName(), this);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    connect(dialog, &QDialog::accepted, this, [this, dialog, scripts]() {
+        QaImportCounts counts;
+        QString error;
+        const bool ok = m_database->importJson(scripts, counts, error, dialog->deleteMissing());
+        if (m_case->caseId() != 0)
+            m_case->showCase(0);
+        m_tree->clear();
+        reload();
+        updateScriptsNotice();
+        say(QStringLiteral("Import Test Scripts"), ok ? QStringLiteral("The test scripts were imported.") : QStringLiteral("Nothing was imported."), ok ? counts.text() : error);
+    });
+    dialog->open();
+    return dialog;
+}
+
 void MainWindow::importScripts()
 {
     auto *chooser = new QFileDialog(this, QStringLiteral("Import Test Scripts"), QString(), QStringLiteral("Test scripts (*.json);;All files (*)"));
     chooser->setAttribute(Qt::WA_DeleteOnClose);
     chooser->setFileMode(QFileDialog::ExistingFile);
-    connect(chooser, &QFileDialog::fileSelected, this, [this](const QString &path) {
-        QString message;
-        const bool ok = importFile(*m_database, path, message);
-        reload();
-        say(QStringLiteral("Import Test Scripts"), ok ? QStringLiteral("The test scripts were imported.") : QStringLiteral("Nothing was imported."), message);
-    });
+    connect(chooser, &QFileDialog::fileSelected, this, [this](const QString &path) { openImportPreview(path); });
     chooser->open();
+}
+
+// ---- the test scripts that came with the program ------------------------------------------------------
+
+QString MainWindow::bundledNotice(QaDatabase &database, const QString &folder, QString *file)
+{
+    if (file)
+        file->clear();
+    QStringList behind, ahead;
+    const QDir scriptsFolder(folder);
+    for (const QString &name : scriptsFolder.entryList({ QStringLiteral("*.json") }, QDir::Files, QDir::Name))
+    {
+        QJsonObject scripts;
+        QaImportPreview preview;
+        QString message;
+        if (!readScripts(scriptsFolder.filePath(name), scripts, message) || !database.previewImport(scripts, preview, message) || preview.newProject)
+            continue;       // a project the database does not have is not behind in anything
+        const int order = preview.versionOrder();
+        const int different = int(preview.added.size() + preview.changed.size());
+        if (order < 0)
+            ahead << QStringLiteral("%1 (the database has version %2, this program brings %3)").arg(preview.project, preview.databaseVersion, preview.fileVersion);
+        // Newer by its version - or, where the database's are not marked with one, simply not the same.
+        // (Of the same version, what differs was changed here on purpose.)
+        else if (different > 0 && (order > 0 || preview.databaseVersion.isEmpty()))
+        {
+            QStringList what;
+            if (!preview.added.isEmpty())
+                what << QStringLiteral("%1 new").arg(preview.added.size());
+            if (!preview.changed.isEmpty())
+                what << QStringLiteral("%1 changed").arg(preview.changed.size());
+            behind << QStringLiteral("%1 - %2 test %3%4").arg(preview.project, what.join(QStringLiteral(" and ")), different == 1 ? QStringLiteral("case") : QStringLiteral("cases"),
+                                                             preview.fileVersion.isEmpty() ? QString()
+                                                             : preview.databaseVersion.isEmpty() ? QStringLiteral(" (version %1)").arg(preview.fileVersion)
+                                                                                                 : QStringLiteral(" (version %1; the database has %2)").arg(preview.fileVersion, preview.databaseVersion));
+            if (file && file->isEmpty())
+                *file = scriptsFolder.filePath(name);
+        }
+    }
+    if (!behind.isEmpty())
+        return QStringLiteral("The test scripts that came with this program are newer than this database's: %1.").arg(behind.join(QStringLiteral("; ")));
+    if (!ahead.isEmpty())
+        return QStringLiteral("This database's test scripts are newer than those this program brings: %1. There is a newer QA Test Tracker - install it on this PC too.")
+            .arg(ahead.join(QStringLiteral("; ")));
+    return QString();
+}
+
+void MainWindow::setBundledScripts(const QString &folder)
+{
+    m_scriptsFolder = folder;
+    updateScriptsNotice();
+}
+
+void MainWindow::updateScriptsNotice()
+{
+    if (m_scriptsFolder.isEmpty() || m_scriptsLater || !m_database->isOpen())
+    {
+        m_scriptsBar->hide();
+        return;
+    }
+    const QString notice = bundledNotice(*m_database, m_scriptsFolder, &m_scriptsFile);
+    m_scriptsText->setText(notice);
+    // Something to show only where the program's are the newer ones.
+    m_scriptsShow->setVisible(!m_scriptsFile.isEmpty());
+    m_scriptsBar->setVisible(!notice.isEmpty());
+}
+
+// File > Update Test Scripts...: the scripts the program brought, against the database.
+void MainWindow::updateScripts()
+{
+    const QDir folder(m_scriptsFolder);
+    const QStringList files = m_scriptsFolder.isEmpty() ? QStringList() : folder.entryList({ QStringLiteral("*.json") }, QDir::Files, QDir::Name);
+    if (files.isEmpty())
+    {
+        say(QStringLiteral("Update Test Scripts"), QStringLiteral("This program brought no test scripts."),
+            QStringLiteral("File > Import Test Scripts... reads a file of them."));
+        return;
+    }
+    // The first file that has something to bring; else the first, which then says that nothing would change.
+    QString chosen = folder.filePath(files.first());
+    for (const QString &name : files)
+    {
+        QJsonObject scripts;
+        QaImportPreview preview;
+        QString message;
+        if (readScripts(folder.filePath(name), scripts, message) && m_database->previewImport(scripts, preview, message) && ImportPreview::worthImporting(preview))
+        {
+            chosen = folder.filePath(name);
+            break;
+        }
+    }
+    openImportPreview(chosen);
 }
 
 void MainWindow::exportProject()

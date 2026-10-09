@@ -5,6 +5,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
+#include <QRegularExpression>
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QUuid>
@@ -108,7 +109,14 @@ QString QaImportCounts::text() const
     if (casesUpdated > 0)
         text += (text.isEmpty() ? QString() : QStringLiteral("; ")) + count(casesUpdated, "test case", "test cases")
                 + (casesUpdated == 1 ? QStringLiteral(" was updated") : QStringLiteral(" were updated"));
-    return text.isEmpty() ? QStringLiteral("Nothing was added: the file has no test cases.") : text + QLatin1Char('.');
+    if (casesDeleted > 0)
+        text += (text.isEmpty() ? QString() : QStringLiteral("; ")) + count(casesDeleted, "test case", "test cases")
+                + (casesDeleted == 1 ? QStringLiteral(" was deleted") : QStringLiteral(" were deleted"));
+    if (text.isEmpty())
+        return casesUnchanged > 0 ? QStringLiteral("Nothing changed: the %1 are as the file says.").arg(count(casesUnchanged, "test case", "test cases")).replace(
+                                        QStringLiteral("the 1 test case are"), QStringLiteral("the test case is"))
+                                  : QStringLiteral("Nothing was added: the file has no test cases.");
+    return text + QLatin1Char('.');
 }
 
 QaDatabase::QaDatabase()
@@ -344,6 +352,7 @@ bool QaDatabase::createTables(QString &error)
         && addMissingColumn(QStringLiteral("runs"), QStringLiteral("builds"), QStringLiteral("TEXT NOT NULL DEFAULT ''"), error)
         && addMissingColumn(QStringLiteral("projects"), QStringLiteral("components"), QStringLiteral("TEXT NOT NULL DEFAULT ''"), error)
         && addMissingColumn(QStringLiteral("projects"), QStringLiteral("issue_url"), QStringLiteral("TEXT NOT NULL DEFAULT ''"), error)
+        && addMissingColumn(QStringLiteral("projects"), QStringLiteral("scripts_version"), QStringLiteral("TEXT NOT NULL DEFAULT ''"), error)
         && addMissingColumn(QStringLiteral("results"), QStringLiteral("defect"), QStringLiteral("TEXT NOT NULL DEFAULT ''"), error);
 }
 
@@ -367,10 +376,11 @@ bool QaDatabase::projects(QList<QaProject> &list, QString &error)
 {
     list.clear();
     QSqlQuery query;
-    if (!exec(QStringLiteral("SELECT id, name, description, components, issue_url FROM projects ORDER BY LOWER(name)"), {}, error, &query))
+    if (!exec(QStringLiteral("SELECT id, name, description, components, issue_url, scripts_version FROM projects ORDER BY LOWER(name)"), {}, error, &query))
         return false;
     while (query.next())
-        list << QaProject { query.value(0).toLongLong(), query.value(1).toString(), query.value(2).toString(), query.value(3).toString(), query.value(4).toString() };
+        list << QaProject { query.value(0).toLongLong(), query.value(1).toString(), query.value(2).toString(), query.value(3).toString(), query.value(4).toString(),
+                            query.value(5).toString() };
     return true;
 }
 
@@ -1463,155 +1473,410 @@ bool QaDatabase::summary(qint64 runId, QaSummary &counts, QString &error)
 
 // ---- test scripts as a file -----------------------------------------------------------------------
 
-bool QaDatabase::importJson(const QJsonObject &scripts, QaImportCounts &counts, QString &error)
+namespace
+{
+    // A file of test scripts, read and tidied - what the database would hold of it.
+    struct ScriptCase
+    {
+        QaCase testCase;        // key, title, priority, area, preconditions, notes, tags, steps
+        bool   saysTags = false;
+    };
+    struct ScriptSuite
+    {
+        QString name;
+        QString description;
+        QList<ScriptCase> cases;
+    };
+    struct Scripts
+    {
+        QString project;
+        QString description;
+        QString components;
+        QString issueUrl;
+        QString version;
+        QList<ScriptSuite> suites;
+    };
+
+    // The steps that say something, tidied.
+    QList<QaStep> tidied(const QList<QaStep> &steps)
+    {
+        QList<QaStep> said;
+        for (const QaStep &step : steps)
+            if (!step.action.trimmed().isEmpty() || !step.expected.trimmed().isEmpty())
+                said << QaStep { step.action.trimmed(), step.expected.trimmed() };
+        return said;
+    }
+
+    bool readScripts(const QJsonObject &json, Scripts &scripts, QString &error)
+    {
+        scripts = Scripts();
+        scripts.project = json.value(QLatin1String("project")).toString().trimmed();
+        if (scripts.project.isEmpty())
+        {
+            error = QStringLiteral("The file names no project (\"project\"): it is not a file of test scripts.");
+            return false;
+        }
+        scripts.description = json.value(QLatin1String("description")).toString();
+        // What the project is made of ("components": [ "Server", "Desktop app" ]), where the file says.
+        QStringList parts;
+        for (const QJsonValue &part : json.value(QLatin1String("components")).toArray())
+            parts << part.toString();
+        scripts.components = QaDatabase::componentList(parts.join(QLatin1Char(','))).join(QStringLiteral(", "));
+        scripts.issueUrl = json.value(QLatin1String("issueUrl")).toString().trimmed();
+        // A version may be written as a text or as a number.
+        const QJsonValue version = json.value(QLatin1String("version"));
+        scripts.version = version.isDouble() ? QString::number(version.toDouble()) : version.toString().trimmed();
+
+        for (const QJsonValue &suiteValue : json.value(QLatin1String("suites")).toArray())
+        {
+            const QJsonObject suiteJson = suiteValue.toObject();
+            ScriptSuite suite;
+            suite.name = suiteJson.value(QLatin1String("name")).toString().trimmed();
+            suite.description = suiteJson.value(QLatin1String("description")).toString();
+            if (suite.name.isEmpty())
+            {
+                error = QStringLiteral("A suite of the file has no name. Nothing was imported.");
+                return false;
+            }
+            for (const QJsonValue &caseValue : suiteJson.value(QLatin1String("cases")).toArray())
+            {
+                const QJsonObject caseJson = caseValue.toObject();
+                ScriptCase one;
+                QaCase &testCase = one.testCase;
+                testCase.key = caseJson.value(QLatin1String("key")).toString().trimmed();
+                testCase.title = caseJson.value(QLatin1String("title")).toString().trimmed();
+                testCase.priority = caseJson.value(QLatin1String("priority")).toString(QStringLiteral("Medium"));
+                if (!QaDatabase::priorities().contains(testCase.priority))
+                    testCase.priority = QStringLiteral("Medium");
+                testCase.area = caseJson.value(QLatin1String("area")).toString();
+                testCase.preconditions = caseJson.value(QLatin1String("preconditions")).toString();
+                testCase.notes = caseJson.value(QLatin1String("notes")).toString();
+                QStringList caseTags;
+                for (const QJsonValue &tagValue : caseJson.value(QLatin1String("tags")).toArray())
+                    caseTags << tagValue.toString();
+                one.saysTags = caseJson.contains(QLatin1String("tags"));
+                testCase.tags = QaDatabase::tagList(caseTags.join(QLatin1Char(','))).join(QStringLiteral(", "));
+                QList<QaStep> steps;
+                for (const QJsonValue &stepValue : caseJson.value(QLatin1String("steps")).toArray())
+                    steps << QaStep { stepValue.toObject().value(QLatin1String("action")).toString(), stepValue.toObject().value(QLatin1String("expected")).toString() };
+                testCase.steps = tidied(steps);
+                if (testCase.key.isEmpty() || testCase.title.isEmpty())
+                {
+                    error = QStringLiteral("A test case of the suite \"%1\" has no key or no title. Nothing was imported.").arg(suite.name);
+                    return false;
+                }
+                suite.cases << one;
+            }
+            scripts.suites << suite;
+        }
+        return true;
+    }
+
+    // In what a case that is stored is not as the file says ("" = in nothing). A file
+    // that says no tags says nothing about them.
+    QStringList whatDiffers(const QaCase &stored, const QString &storedSuite, const ScriptCase &file, const QString &fileSuite)
+    {
+        QStringList what;
+        if (stored.title != file.testCase.title)
+            what << QStringLiteral("title");
+        if (stored.priority != file.testCase.priority)
+            what << QStringLiteral("priority");
+        if (stored.area != file.testCase.area)
+            what << QStringLiteral("where it is run");
+        if (stored.preconditions != file.testCase.preconditions)
+            what << QStringLiteral("preconditions");
+        if (stored.notes != file.testCase.notes)
+            what << QStringLiteral("notes");
+        if (file.saysTags && QaDatabase::tagList(stored.tags).join(QStringLiteral(", ")) != file.testCase.tags)
+            what << QStringLiteral("tags");
+        const QList<QaStep> steps = tidied(stored.steps);
+        bool same = steps.size() == file.testCase.steps.size();
+        for (int i = 0; same && i < steps.size(); ++i)
+            same = steps.at(i).action == file.testCase.steps.at(i).action && steps.at(i).expected == file.testCase.steps.at(i).expected;
+        if (!same)
+            what << QStringLiteral("steps");
+        if (storedSuite != fileSuite)
+            what << QStringLiteral("moved from %1 to %2").arg(storedSuite, fileSuite);
+        return what;
+    }
+}
+
+int QaDatabase::compareVersions(const QString &first, const QString &second)
+{
+    // Numbers by their value, what stands between them as text: "1.10" is after "1.9".
+    static const QRegularExpression piece(QStringLiteral("(\\d+|\\D+)"));
+    const auto pieces = [](const QString &version) {
+        QStringList list;
+        QRegularExpressionMatchIterator matches = piece.globalMatch(version.trimmed());
+        while (matches.hasNext())
+            list << matches.next().captured(1);
+        return list;
+    };
+    const QStringList a = pieces(first), b = pieces(second);
+    for (int i = 0; i < qMax(a.size(), b.size()); ++i)
+    {
+        if (i >= a.size())
+            return -1;
+        if (i >= b.size())
+            return 1;
+        bool aNumber = false, bNumber = false;
+        const qulonglong aValue = a.at(i).toULongLong(&aNumber), bValue = b.at(i).toULongLong(&bNumber);
+        if (aNumber && bNumber)
+        {
+            if (aValue != bValue)
+                return aValue < bValue ? -1 : 1;
+            continue;
+        }
+        const int order = a.at(i).compare(b.at(i), Qt::CaseInsensitive);
+        if (order != 0)
+            return order < 0 ? -1 : 1;
+    }
+    return 0;
+}
+
+int QaImportPreview::versionOrder() const
+{
+    return fileVersion.isEmpty() || databaseVersion.isEmpty() ? 0 : QaDatabase::compareVersions(fileVersion, databaseVersion);
+}
+
+QString QaImportPreview::summary() const
+{
+    QStringList parts;
+    if (!added.isEmpty())
+        parts << QStringLiteral("%1 new").arg(added.size());
+    if (!changed.isEmpty())
+        parts << QStringLiteral("%1 changed").arg(changed.size());
+    parts << QStringLiteral("%1 unchanged").arg(unchanged);
+    QString text = parts.join(QStringLiteral(", "));
+    if (!missing.isEmpty())
+        text += QStringLiteral("; %1 not in the file").arg(missing.size() == 1 ? QStringLiteral("1 is") : QStringLiteral("%1 are").arg(missing.size()));
+    return text + QLatin1Char('.');
+}
+
+bool QaDatabase::previewImport(const QJsonObject &json, QaImportPreview &preview, QString &error)
+{
+    preview = QaImportPreview();
+    Scripts scripts;
+    if (!readScripts(json, scripts, error))
+        return false;
+    preview.project = scripts.project;
+    preview.fileVersion = scripts.version;
+
+    QSqlQuery query;
+    if (!exec(QStringLiteral("SELECT id, scripts_version FROM projects WHERE name = ?"), { scripts.project }, error, &query))
+        return false;
+    qint64 projectId = 0;
+    if (query.next())
+    {
+        projectId = query.value(0).toLongLong();
+        preview.databaseVersion = query.value(1).toString();
+    }
+    preview.newProject = projectId == 0;
+
+    QStringList inFile;
+    for (const ScriptSuite &suite : std::as_const(scripts.suites))
+    {
+        bool suiteThere = false;
+        if (projectId != 0)
+        {
+            if (!exec(QStringLiteral("SELECT 1 FROM suites WHERE project_id = ? AND name = ?"), { projectId, suite.name }, error, &query))
+                return false;
+            suiteThere = query.next();
+        }
+        if (!suiteThere && !preview.newSuites.contains(suite.name))
+            preview.newSuites << suite.name;
+        for (const ScriptCase &one : suite.cases)
+        {
+            inFile << one.testCase.key;
+            qint64 id = 0;
+            QString storedSuite;
+            if (projectId != 0)
+            {
+                if (!exec(QStringLiteral("SELECT c.id, s.name FROM cases c JOIN suites s ON s.id = c.suite_id WHERE c.project_id = ? AND c.key = ?"),
+                          { projectId, one.testCase.key }, error, &query))
+                    return false;
+                if (query.next())
+                {
+                    id = query.value(0).toLongLong();
+                    storedSuite = query.value(1).toString();
+                }
+            }
+            if (id == 0)
+            {
+                preview.added << QaCaseChange { one.testCase.key, one.testCase.title, suite.name, {} };
+                continue;
+            }
+            QaCase stored;
+            if (!loadCase(id, stored, error))
+                return false;
+            const QStringList what = whatDiffers(stored, storedSuite, one, suite.name);
+            if (what.isEmpty())
+                ++preview.unchanged;
+            else
+                preview.changed << QaCaseChange { one.testCase.key, one.testCase.title, suite.name, what };
+        }
+    }
+    // What the database has of the project and the file does not.
+    if (projectId != 0)
+    {
+        if (!exec(QStringLiteral("SELECT c.key, c.title, s.name FROM cases c JOIN suites s ON s.id = c.suite_id WHERE c.project_id = ? ORDER BY s.position, s.id, c.key"),
+                  { projectId }, error, &query))
+            return false;
+        while (query.next())
+            if (!inFile.contains(query.value(0).toString()))
+                preview.missing << QaCaseChange { query.value(0).toString(), query.value(1).toString(), query.value(2).toString(), {} };
+    }
+    return true;
+}
+
+bool QaDatabase::importJson(const QJsonObject &json, QaImportCounts &counts, QString &error, bool deleteMissing)
 {
     counts = QaImportCounts();
-    const QString projectName = scripts.value(QLatin1String("project")).toString().trimmed();
-    if (projectName.isEmpty())
-    {
-        error = QStringLiteral("The file names no project (\"project\"): it is not a file of test scripts.");
+    Scripts scripts;
+    if (!readScripts(json, scripts, error))
         return false;
-    }
     if (!isOpen())
     {
         error = QStringLiteral("No database is open.");
         return false;
     }
 
-    // All of the file, or none of it.
-    Transaction transaction(QSqlDatabase::database(m_connection, false));
-    QSqlQuery query;
-
-    // What the project is made of ("components": [ "Server", "Desktop app" ]), where the file says.
-    QStringList parts;
-    for (const QJsonValue &part : scripts.value(QLatin1String("components")).toArray())
-        parts << part.toString();
-    const QString components = componentList(parts.join(QLatin1Char(','))).join(QStringLiteral(", "));
-    const QString issueUrl = scripts.value(QLatin1String("issueUrl")).toString().trimmed();
-
-    qint64 projectId = 0;
-    if (!exec(QStringLiteral("SELECT id FROM projects WHERE name = ?"), { projectName }, error, &query))
-        return false;
-    if (query.next())
+    QStringList files;      // of the results of cases that go: removed once everything is stored
     {
-        projectId = query.value(0).toLongLong();
-        // What the file says the project is, where it says something.
-        const QString description = scripts.value(QLatin1String("description")).toString();
-        if (!description.isEmpty() && !exec(QStringLiteral("UPDATE projects SET description = ? WHERE id = ?"), { description, projectId }, error))
-            return false;
-        if (!components.isEmpty() && !exec(QStringLiteral("UPDATE projects SET components = ? WHERE id = ?"), { components, projectId }, error))
-            return false;
-        if (!issueUrl.isEmpty() && !exec(QStringLiteral("UPDATE projects SET issue_url = ? WHERE id = ?"), { issueUrl, projectId }, error))
-            return false;
-    }
-    else
-    {
-        QaProject project;
-        project.name = projectName;
-        project.description = scripts.value(QLatin1String("description")).toString();
-        project.components = components;
-        project.issueUrl = issueUrl;
-        if (!addProject(project, error))
-            return false;
-        projectId = project.id;
-        ++counts.projects;
-    }
+        // All of the file, or none of it.
+        Transaction transaction(QSqlDatabase::database(m_connection, false));
+        QSqlQuery query;
 
-    for (const QJsonValue &suiteValue : scripts.value(QLatin1String("suites")).toArray())
-    {
-        const QJsonObject suiteJson = suiteValue.toObject();
-        QaSuite suite;
-        suite.projectId = projectId;
-        suite.name = suiteJson.value(QLatin1String("name")).toString().trimmed();
-        suite.description = suiteJson.value(QLatin1String("description")).toString();
-        if (suite.name.isEmpty())
-        {
-            error = QStringLiteral("A suite of the file has no name. Nothing was imported.");
-            return false;
-        }
-        if (!exec(QStringLiteral("SELECT id FROM suites WHERE project_id = ? AND name = ?"), { projectId, suite.name }, error, &query))
+        qint64 projectId = 0;
+        if (!exec(QStringLiteral("SELECT id FROM projects WHERE name = ?"), { scripts.project }, error, &query))
             return false;
         if (query.next())
         {
-            suite.id = query.value(0).toLongLong();
-            if (!suite.description.isEmpty() && !updateSuite(suite, error))
+            projectId = query.value(0).toLongLong();
+            // What the file says the project is, where it says something.
+            if (!scripts.description.isEmpty() && !exec(QStringLiteral("UPDATE projects SET description = ? WHERE id = ?"), { scripts.description, projectId }, error))
+                return false;
+            if (!scripts.components.isEmpty() && !exec(QStringLiteral("UPDATE projects SET components = ? WHERE id = ?"), { scripts.components, projectId }, error))
+                return false;
+            if (!scripts.issueUrl.isEmpty() && !exec(QStringLiteral("UPDATE projects SET issue_url = ? WHERE id = ?"), { scripts.issueUrl, projectId }, error))
                 return false;
         }
         else
         {
-            if (!addSuite(suite, error))
+            QaProject project;
+            project.name = scripts.project;
+            project.description = scripts.description;
+            project.components = scripts.components;
+            project.issueUrl = scripts.issueUrl;
+            if (!addProject(project, error))
                 return false;
-            ++counts.suites;
+            projectId = project.id;
+            ++counts.projects;
         }
+        // Which scripts the project is now up to date with.
+        if (!scripts.version.isEmpty() && !exec(QStringLiteral("UPDATE projects SET scripts_version = ? WHERE id = ?"), { scripts.version, projectId }, error))
+            return false;
 
-        for (const QJsonValue &caseValue : suiteJson.value(QLatin1String("cases")).toArray())
+        QStringList inFile;
+        for (const ScriptSuite &fromFile : std::as_const(scripts.suites))
         {
-            const QJsonObject caseJson = caseValue.toObject();
-            QaCase testCase;
-            testCase.suiteId = suite.id;
-            testCase.key = caseJson.value(QLatin1String("key")).toString().trimmed();
-            testCase.title = caseJson.value(QLatin1String("title")).toString().trimmed();
-            testCase.priority = caseJson.value(QLatin1String("priority")).toString(QStringLiteral("Medium"));
-            testCase.area = caseJson.value(QLatin1String("area")).toString();
-            testCase.preconditions = caseJson.value(QLatin1String("preconditions")).toString();
-            testCase.notes = caseJson.value(QLatin1String("notes")).toString();
-            QStringList caseTags;
-            for (const QJsonValue &tagValue : caseJson.value(QLatin1String("tags")).toArray())
-                caseTags << tagValue.toString();
-            for (const QJsonValue &stepValue : caseJson.value(QLatin1String("steps")).toArray())
-                testCase.steps << QaStep { stepValue.toObject().value(QLatin1String("action")).toString(),
-                                           stepValue.toObject().value(QLatin1String("expected")).toString() };
-            if (testCase.key.isEmpty() || testCase.title.isEmpty())
+            QaSuite suite;
+            suite.projectId = projectId;
+            suite.name = fromFile.name;
+            suite.description = fromFile.description;
+            if (!exec(QStringLiteral("SELECT id FROM suites WHERE project_id = ? AND name = ?"), { projectId, suite.name }, error, &query))
+                return false;
+            if (query.next())
             {
-                error = QStringLiteral("A test case of the suite \"%1\" has no key or no title. Nothing was imported.").arg(suite.name);
-                return false;
-            }
-
-            // The case of that key, wherever in the project it is: it moves to the suite the file says.
-            if (!exec(QStringLiteral("SELECT id FROM cases WHERE project_id = ? AND key = ?"), { projectId, testCase.key }, error, &query))
-                return false;
-            const bool known = query.next();
-            if (known)
-                testCase.id = query.value(0).toLongLong();
-
-            // saveCase has a transaction of its own inside this one: SQLite then takes its begin as said
-            // already and its commit as ours - so its work is done by hand here.
-            const bool stored = known
-                ? exec(QStringLiteral("UPDATE cases SET suite_id = ?, title = ?, priority = ?, area = ?, preconditions = ?, notes = ?, updated = ?, "
-                                    "revision = revision + 1, changed_by = '' WHERE id = ?"),
-                       { testCase.suiteId, testCase.title, priorities().contains(testCase.priority) ? testCase.priority : QStringLiteral("Medium"), testCase.area,
-                         testCase.preconditions, testCase.notes, now(), testCase.id }, error)
-                : exec(QStringLiteral("INSERT INTO cases (suite_id, project_id, key, title, priority, area, preconditions, notes, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"),
-                       { testCase.suiteId, projectId, testCase.key, testCase.title, priorities().contains(testCase.priority) ? testCase.priority : QStringLiteral("Medium"),
-                         testCase.area, testCase.preconditions, testCase.notes, now() }, error, &query);
-            if (!stored)
-                return false;
-            if (!known)
-                testCase.id = query.lastInsertId().toLongLong();
-            // Its tags, where the file says any: one that says none leaves those the case has.
-            if (caseJson.contains(QLatin1String("tags"))
-                && !exec(QStringLiteral("UPDATE cases SET tags = ? WHERE id = ?"), { tagList(caseTags.join(QLatin1Char(','))).join(QStringLiteral(", ")), testCase.id }, error))
-                return false;
-            if (!exec(QStringLiteral("DELETE FROM steps WHERE case_id = ?"), { testCase.id }, error))
-                return false;
-            int position = 0;
-            for (const QaStep &step : std::as_const(testCase.steps))
-            {
-                if (step.action.trimmed().isEmpty() && step.expected.trimmed().isEmpty())
-                    continue;
-                if (!exec(QStringLiteral("INSERT INTO steps (case_id, position, action, expected) VALUES (?, ?, ?, ?)"),
-                          { testCase.id, ++position, step.action.trimmed(), step.expected.trimmed() }, error))
+                suite.id = query.value(0).toLongLong();
+                if (!suite.description.isEmpty() && !updateSuite(suite, error))
                     return false;
             }
-            ++(known ? counts.casesUpdated : counts.casesAdded);
+            else
+            {
+                if (!addSuite(suite, error))
+                    return false;
+                ++counts.suites;
+            }
+
+            for (const ScriptCase &one : fromFile.cases)
+            {
+                QaCase testCase = one.testCase;
+                testCase.suiteId = suite.id;
+                inFile << testCase.key;
+
+                // The case of that key, wherever in the project it is: it moves to the suite the file says.
+                if (!exec(QStringLiteral("SELECT c.id, s.name FROM cases c JOIN suites s ON s.id = c.suite_id WHERE c.project_id = ? AND c.key = ?"),
+                          { projectId, testCase.key }, error, &query))
+                    return false;
+                const bool known = query.next();
+                if (known)
+                {
+                    testCase.id = query.value(0).toLongLong();
+                    // One that is as the file says is left alone: nothing of it changes, and whoever has it open is not disturbed.
+                    const QString storedSuite = query.value(1).toString();
+                    QaCase stored;
+                    if (!loadCase(testCase.id, stored, error))
+                        return false;
+                    if (whatDiffers(stored, storedSuite, one, suite.name).isEmpty())
+                    {
+                        ++counts.casesUnchanged;
+                        continue;
+                    }
+                }
+
+                // saveCase has a transaction of its own inside this one: SQLite then takes its begin as said
+                // already and its commit as ours - so its work is done by hand here.
+                const bool stored = known
+                    ? exec(QStringLiteral("UPDATE cases SET suite_id = ?, title = ?, priority = ?, area = ?, preconditions = ?, notes = ?, updated = ?, "
+                                          "revision = revision + 1, changed_by = '' WHERE id = ?"),
+                           { testCase.suiteId, testCase.title, testCase.priority, testCase.area, testCase.preconditions, testCase.notes, now(), testCase.id }, error)
+                    : exec(QStringLiteral("INSERT INTO cases (suite_id, project_id, key, title, priority, area, preconditions, notes, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"),
+                           { testCase.suiteId, projectId, testCase.key, testCase.title, testCase.priority, testCase.area, testCase.preconditions, testCase.notes, now() },
+                           error, &query);
+                if (!stored)
+                    return false;
+                if (!known)
+                    testCase.id = query.lastInsertId().toLongLong();
+                // Its tags, where the file says any: one that says none leaves those the case has.
+                if (one.saysTags && !exec(QStringLiteral("UPDATE cases SET tags = ? WHERE id = ?"), { testCase.tags, testCase.id }, error))
+                    return false;
+                if (!exec(QStringLiteral("DELETE FROM steps WHERE case_id = ?"), { testCase.id }, error))
+                    return false;
+                int position = 0;
+                for (const QaStep &step : std::as_const(testCase.steps))
+                    if (!exec(QStringLiteral("INSERT INTO steps (case_id, position, action, expected) VALUES (?, ?, ?, ?)"),
+                              { testCase.id, ++position, step.action, step.expected }, error))
+                        return false;
+                ++(known ? counts.casesUpdated : counts.casesAdded);
+            }
+        }
+
+        // What the file does not have: only when that was asked for.
+        if (deleteMissing)
+        {
+            QList<qint64> gone;
+            if (!exec(QStringLiteral("SELECT id, key FROM cases WHERE project_id = ?"), { projectId }, error, &query))
+                return false;
+            while (query.next())
+                if (!inFile.contains(query.value(1).toString()))
+                    gone << query.value(0).toLongLong();
+            for (const qint64 id : std::as_const(gone))
+            {
+                files << attachmentFiles(QStringLiteral("case_id = ?"), { id });
+                if (!exec(QStringLiteral("DELETE FROM cases WHERE id = ?"), { id }, error))
+                    return false;
+                ++counts.casesDeleted;
+            }
+        }
+
+        if (!transaction.commit())
+        {
+            error = QStringLiteral("The test scripts could not be stored. Nothing was imported.");
+            return false;
         }
     }
-
-    if (!transaction.commit())
-    {
-        error = QStringLiteral("The test scripts could not be stored. Nothing was imported.");
-        return false;
-    }
+    removeFiles(files);
     return true;
 }
 
@@ -1619,7 +1884,7 @@ bool QaDatabase::exportJson(qint64 projectId, QJsonObject &scripts, QString &err
 {
     scripts = QJsonObject();
     QSqlQuery query;
-    if (!exec(QStringLiteral("SELECT name, description, components, issue_url FROM projects WHERE id = ?"), { projectId }, error, &query))
+    if (!exec(QStringLiteral("SELECT name, description, components, issue_url, scripts_version FROM projects WHERE id = ?"), { projectId }, error, &query))
         return false;
     if (!query.next())
     {
@@ -1632,6 +1897,8 @@ bool QaDatabase::exportJson(qint64 projectId, QJsonObject &scripts, QString &err
         scripts.insert(QStringLiteral("components"), QJsonArray::fromStringList(componentList(query.value(2).toString())));
     if (!query.value(3).toString().isEmpty())
         scripts.insert(QStringLiteral("issueUrl"), query.value(3).toString());
+    if (!query.value(4).toString().isEmpty())
+        scripts.insert(QStringLiteral("version"), query.value(4).toString());
 
     QList<QaSuite> suiteList;
     if (!suites(projectId, suiteList, error))

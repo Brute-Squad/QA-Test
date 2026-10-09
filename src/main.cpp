@@ -52,7 +52,7 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
     QCoreApplication::setOrganizationName(QStringLiteral("QATest"));
     QCoreApplication::setApplicationName(QStringLiteral("QATest"));
-    QCoreApplication::setApplicationVersion(QStringLiteral("1.4"));
+    QCoreApplication::setApplicationVersion(QStringLiteral("1.5"));
 
     // The icon of every window: the sizes a title bar and a taskbar ask for.
     QIcon icon;
@@ -82,8 +82,10 @@ int main(int argc, char *argv[])
     const QCommandLineOption networkNameOption(QStringLiteral("network-name"),
                                                QStringLiteral("Print a path on a connected drive under its network name (\\\\server\\share\\...), and exit."),
                                                QStringLiteral("path"));
+    const QCommandLineOption scriptsStatusOption(QStringLiteral("scripts-status"),
+                                                 QStringLiteral("Print whether the test scripts that came with the program are newer than the database's, and exit."));
     parser.addOptions({ dbOption, importOption, whereOption, configOption, writeConfigOption, writeUserConfigOption, setDatabaseOption, existingOption,
-                        networkNameOption, smokeOption });
+                        networkNameOption, scriptsStatusOption, smokeOption });
     parser.process(app);
 
     QTextStream out(stdout);
@@ -225,13 +227,20 @@ int main(int argc, char *argv[])
         // A shared drive that is not there is the usual reason: say whose word the path is.
         error += QStringLiteral("\n\n%1").arg(why);
         err << error << Qt::endl;
-        if (parser.isSet(importOption) || parser.isSet(smokeOption))
+        if (parser.isSet(importOption) || parser.isSet(smokeOption) || parser.isSet(scriptsStatusOption))
             return 1;
         // ... and it may be there in a moment: a drive that is being connected, a NAS that wakes up.
         QMessageBox box(QMessageBox::Critical, QStringLiteral("QA Test Tracker"), error, QMessageBox::Retry | QMessageBox::Close);
         box.setInformativeText(QStringLiteral("If the database is on a shared drive, see that the drive is connected, then press Retry."));
         if (box.exec() != QMessageBox::Retry)
             return 1;
+    }
+
+    if (parser.isSet(scriptsStatusOption))
+    {
+        const QString notice = MainWindow::bundledNotice(database, QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(QStringLiteral("scripts")));
+        out << (notice.isEmpty() ? QStringLiteral("The database's test scripts are not behind those this program brings.") : notice) << Qt::endl;
+        return 0;
     }
 
     if (parser.isSet(importOption))
@@ -265,6 +274,9 @@ int main(int argc, char *argv[])
     window.setDatabaseSource(why, configFile);
     if (!parser.isSet(smokeOption))
         window.setBackups(config.backupKeep, config.backupFolder);
+    // Does the program bring newer test scripts than the database has? (Not for one it has just filled.)
+    if (!parser.isSet(smokeOption))
+        window.setBundledScripts(QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(QStringLiteral("scripts")));
     if (!brought.isEmpty())
         window.statusBar()->showMessage(brought, 15000);
     if (parser.isSet(smokeOption))
