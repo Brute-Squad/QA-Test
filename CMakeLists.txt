@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(QATest VERSION 1.1 LANGUAGES CXX)
+project(QATest VERSION 1.2 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -35,6 +35,8 @@ add_executable(QATest WIN32
     src/casepanel.h
     src/runpanel.cpp
     src/runpanel.h
+    src/runmode.cpp
+    src/runmode.h
     src/report.cpp
     src/report.h
     # Its icon: in the .exe (what the Explorer and a shortcut show) and for its windows.
@@ -62,6 +64,8 @@ add_executable(QATestTests
     src/casepanel.h
     src/runpanel.cpp
     src/runpanel.h
+    src/runmode.cpp
+    src/runmode.h
     src/report.cpp
     src/report.h
 )

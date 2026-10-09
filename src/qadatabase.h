@@ -19,7 +19,12 @@
 //              who tests, when it was started and finished
 //   results    one row per case of a run: Not run / Passed / Failed /
 //              Blocked / Skipped, with notes, the step that failed, who and
-//              when. A run's cases are fixed when it is made.
+//              when - and for whom the case is meant in this run (assigned).
+//              A run's cases are fixed when it is made.
+//   attachments  the files that go with a result - a screenshot of what went
+//              wrong, a log: a row here, the file itself in the folder
+//              "attachments" beside the database (which is what a shared
+//              drive shares), under the run's number.
 //
 // Every function that can fail returns false and says why in `error`.
 // Deleting takes along what belongs to the record (a project's suites, a
@@ -30,6 +35,9 @@ struct QaProject
     qint64  id = 0;
     QString name;
     QString description;
+    // What the project is made of, as far as a build of each is tested: "Server,
+    // Desktop app, Phone app". A run then says the build of each (QaRun::builds).
+    QString components;
 };
 
 struct QaSuite
@@ -75,6 +83,21 @@ struct QaRun
     QString started;        // ISO 8601, UTC
     QString finished;       // "" = still going
     QString notes;
+    // The build of each of the project's components that is tested, a line each:
+    // "Server: 0.2.0 Beta, built 2026-10-09 07:50". ("" = the run says only `build`.)
+    QString builds;
+};
+
+// A file that goes with a result.
+struct QaAttachment
+{
+    qint64  id = 0;
+    qint64  runId = 0;
+    qint64  caseId = 0;
+    QString name;           // what it is called: "screenshot-101502.png"
+    QString file;           // where it is, from the attachments folder: "12/45-1a2b3c4d-screenshot-101502.png"
+    QString added;          // ISO 8601, UTC
+    QString addedBy;
 };
 
 struct QaResult
@@ -91,6 +114,8 @@ struct QaResult
     int     failedStep = 0; // 1 = the first step; 0 = not said
     QString tester;
     QString executed;       // ISO 8601, UTC; "" = not run
+    QString assigned;       // whose case it is in this run ("" = nobody's in particular)
+    int     attachments = 0; // how many files go with it
 };
 
 struct QaSummary
@@ -192,6 +217,31 @@ public:
     bool createRun(QaRun &run, const QList<qint64> &suiteIds, QString &error);
     bool updateRun(const QaRun &run, QString &error);                       // name, build, tester, notes, finished
     bool deleteRun(qint64 id, QString &error);
+    // A run of the cases of another run that ended one of those ways there
+    // (failed and blocked, say): each "Not run", for whom it was there, with
+    // that run's builds unless the new one says its own. Not made when there
+    // are none.
+    bool createRerun(QaRun &run, qint64 fromRunId, const QStringList &statuses, QString &error);
+    // Those cases of the run are that tester's ("" = nobody's in particular).
+    bool assign(qint64 runId, const QList<qint64> &caseIds, const QString &tester, QString &error);
+    // Everybody a run knows: who its cases are for, and who recorded results.
+    QStringList testers(qint64 runId);
+
+    // ---- files that go with a result
+    // Where they are: "attachments" beside the database ("" = a database in
+    // memory has none).
+    QString attachmentsFolder() const;
+    QString attachmentPath(const QaAttachment &attachment) const;
+    // A copy of that file goes with the result of that case in that run
+    // (`name` = what to call it; "" = as the file is called). 50 MB at most.
+    bool attach(qint64 runId, qint64 caseId, const QString &sourceFile, const QString &name, QaAttachment &attachment, QString &error);
+    bool attachments(qint64 runId, qint64 caseId, QList<QaAttachment> &list, QString &error);     // the oldest first
+    bool removeAttachment(qint64 id, QString &error);
+
+    // "Server, Desktop app,, " -> { "Server", "Desktop app" }
+    static QStringList componentList(const QString &components);
+    // The newest run of the project that says builds: what to start the next from.
+    QString lastBuilds(qint64 projectId);
     bool results(qint64 runId, QList<QaResult> &list, QString &error);      // by suite, then key
     bool setResult(qint64 runId, qint64 caseId, const QString &status, const QString &notes, int failedStep, const QString &tester, QString &error);
     bool summary(qint64 runId, QaSummary &counts, QString &error);
@@ -211,6 +261,10 @@ private:
     bool exec(const QString &sql, const QVariantList &values, QString &error, class QSqlQuery *query = nullptr);
     bool createTables(QString &error);
     bool addMissingColumn(const QString &table, const QString &column, const QString &definition, QString &error);
+    // The files of the attachments that statement finds (SELECT file ...): read
+    // before what they belong to is deleted, removed after.
+    QStringList attachmentFiles(const QString &where, const QVariantList &values);
+    void removeFiles(const QStringList &files);
 
     QString m_connection;
     QString m_path;

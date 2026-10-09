@@ -102,6 +102,7 @@ private:
     void newSuite();
     void newCase();
     void renameSelected();
+    void editComponents();
     void deleteSelected();
     void askText(const QString &title, const QString &label, const QString &text, std::function<bool(const QString &, QString &)> store);
     void say(const QString &title, const QString &text, const QString &details = QString());
@@ -127,6 +128,7 @@ private:
     QAction *m_newSuite = nullptr;
     QAction *m_newCase = nullptr;
     QAction *m_rename = nullptr;
+    QAction *m_components = nullptr;
     QAction *m_delete = nullptr;
     QAction *m_export = nullptr;
 };

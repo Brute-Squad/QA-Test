@@ -129,6 +129,8 @@ MainWindow::MainWindow(QaDatabase *database, QWidget *parent)
     edit->addSeparator();
     m_rename = edit->addAction(QStringLiteral("&Rename..."));
     connect(m_rename, &QAction::triggered, this, &MainWindow::renameSelected);
+    m_components = edit->addAction(QStringLiteral("Project &Components..."));
+    connect(m_components, &QAction::triggered, this, &MainWindow::editComponents);
     m_delete = edit->addAction(QStringLiteral("&Delete..."));
     connect(m_delete, &QAction::triggered, this, &MainWindow::deleteSelected);
 
@@ -567,6 +569,7 @@ void MainWindow::updateActions()
     m_newCase->setEnabled(suite);
     m_rename->setEnabled(project && currentId(CaseItem) == 0);
     m_delete->setEnabled(project);
+    m_components->setEnabled(project);
     m_export->setEnabled(project);
 }
 
@@ -828,6 +831,33 @@ void MainWindow::renameSelected()
                 return true;
             });
         }
+    }
+}
+
+// What the project is made of - Server, Desktop app, Phone app - so that a test run can say
+// the build of each (New Run... asks for them).
+void MainWindow::editComponents()
+{
+    const qint64 projectId = currentId(ProjectItem);
+    QList<QaProject> projects;
+    QString error;
+    m_database->projects(projects, error);
+    for (const QaProject &project : std::as_const(projects))
+    {
+        if (project.id != projectId)
+            continue;
+        askText(QStringLiteral("Project Components"), QStringLiteral("What %1 is made of, parted by commas:").arg(project.name), project.components,
+                [this, project](const QString &components, QString &why) {
+            QaProject changed = project;
+            changed.components = components;
+            if (!m_database->updateProject(changed, why))
+                return false;
+            statusBar()->showMessage(QaDatabase::componentList(components).isEmpty()
+                                         ? QStringLiteral("A test run of %1 says one build.").arg(project.name)
+                                         : QStringLiteral("A new test run of %1 asks for the build of: %2").arg(project.name, QaDatabase::componentList(components).join(QStringLiteral(", "))),
+                                     8000);
+            return true;
+        });
     }
 }
 

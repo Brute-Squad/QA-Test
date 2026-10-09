@@ -14,6 +14,9 @@
 //                  by the other - a database from before, a copy a day, a
 //                  drive letter as the share's own name, the window while
 //                  the database is away, File > Use a Shared Database
+//   running        getting through a run faster: whose a case is, a run of
+//                  what failed, the build of each component, files that go
+//                  with a result - and Run Mode, one case at a time
 //   the window     the program's own window and panels, offscreen, on a
 //                  database in memory: the tree, a case edited and saved, a
 //                  run made and worked through, its report
@@ -24,9 +27,14 @@
 #include "qashare.h"
 #include "qadatabase.h"
 #include "report.h"
+#include "runmode.h"
 #include "runpanel.h"
 
 #include <QApplication>
+#include <QClipboard>
+#include <QImage>
+#include <QItemSelectionModel>
+#include <QListWidget>
 #include <QComboBox>
 #include <QDir>
 #include <QFile>
@@ -865,6 +873,348 @@ namespace
         check(QaBackup::copies(file).size() == 1, "once");
         check(window.useSharedDatabase(shared, false).isEmpty() && QaBackup::copies(shared).size() == 1, "and of a database that is opened later");
     }
+
+    // ---- getting through a run faster ---------------------------------------------------------------
+    void fastTests()
+    {
+        QTemporaryDir folder;
+        const QString file = folder.filePath("qa/qatest.sqlite");
+        QString error;
+        QaImportCounts counts;
+        QaDatabase db;
+        db.setUser("pat");
+        check(db.open(file, error), "a database in a file: " + error);
+
+        // ---- what a project is made of
+        check(QaDatabase::componentList(" Server, Desktop app,, server ,Phone app ") == QStringList({ "Server", "Desktop app", "Phone app" }) && QaDatabase::componentList("").isEmpty(),
+              "what a project is made of, as a list - each once");
+        QJsonObject scripts = sampleScripts();
+        scripts.insert("components", QJsonArray { "Server", "Desktop app", "Phone app" });
+        QList<QaProject> projects;
+        check(db.importJson(scripts, counts, error) && db.projects(projects, error) && projects.size() == 1 && projects.at(0).components == "Server, Desktop app, Phone app",
+              "test scripts say what their project is made of: " + projects.value(0).components);
+        const qint64 projectId = projects.value(0).id;
+        QJsonObject written;
+        check(db.exportJson(projectId, written, error) && written.value("components").toArray().size() == 3 && written.value("components").toArray().at(1).toString() == "Desktop app",
+              "and are written back with it");
+        check(db.importJson(sampleScripts(), counts, error) && db.projects(projects, error) && projects.at(0).components == "Server, Desktop app, Phone app",
+              "a file that says nothing of it leaves it");
+        QaProject changed = projects.at(0);
+        changed.components = "Server,  App ";
+        check(db.updateProject(changed, error) && db.projects(projects, error) && projects.at(0).components == "Server, App", "it is changed with the project: " + error);
+
+        // ---- a run says the build of each
+        QList<QaSuite> suites;
+        QList<QaCase> login, parts;
+        db.suites(projectId, suites, error);
+        db.cases(suites.value(0).id, login, error);
+        db.cases(suites.value(1).id, parts, error);
+        check(db.lastBuilds(projectId).isEmpty(), "no run has said its builds yet");
+        QaRun run;
+        run.projectId = projectId;
+        run.name = "Beta 3";
+        run.build = "0.2.0 Beta";
+        run.tester = "pat";
+        run.builds = "Server: 0.2.0 Beta, built 2026-10-08 07:50\nApp: 0.2.0 Beta, built 2026-10-09 06:12\n";
+        QList<QaRun> runs;
+        check(db.createRun(run, {}, error) && db.runs(projectId, runs, error) && runs.size() == 1
+              && runs.at(0).builds == "Server: 0.2.0 Beta, built 2026-10-08 07:50\nApp: 0.2.0 Beta, built 2026-10-09 06:12" && runs.at(0).build == "0.2.0 Beta",
+              "a run says the build of each component: " + runs.value(0).builds);
+        check(db.lastBuilds(projectId) == runs.at(0).builds, "which the next run starts from");
+        run.notes = "A note";
+        check(db.updateRun(run, error) && db.runs(projectId, runs, error) && runs.at(0).builds.startsWith("Server: 0.2.0 Beta") && runs.at(0).notes == "A note",
+              "and keeps when the run is changed");
+
+        // ---- whose a case is
+        QList<QaResult> results;
+        check(db.results(run.id, results, error) && results.size() == 3 && results.at(0).assigned.isEmpty() && results.at(0).attachments == 0, "a run's cases are nobody's at first");
+        check(db.assign(run.id, { login.at(0).id, login.at(1).id }, " lou ", error) && db.results(run.id, results, error) && results.at(0).assigned == "lou"
+              && results.at(1).assigned == "lou" && results.at(2).assigned.isEmpty(), "two cases are Lou's: " + error);
+        check(!db.assign(run.id, { parts.at(0).id, 999999 }, "pat", error) && error == "That test case is not part of the run." && db.results(run.id, results, error)
+              && results.at(2).assigned.isEmpty(), "all of them or none: " + error);
+        check(db.assign(run.id, { login.at(1).id }, "", error) && db.results(run.id, results, error) && results.at(1).assigned.isEmpty() && results.at(0).assigned == "lou",
+              "nobody's again");
+        check(db.assign(run.id, { login.at(1).id }, "lou", error), "and Lou's once more");
+        check(db.setResult(run.id, login.at(0).id, "Passed", "", 0, "Lou", error) && db.testers(run.id) == QStringList({ "lou", "pat" }),
+              "everybody a run knows, each once: " + db.testers(run.id).join(","));
+        check(db.results(run.id, results, error) && results.at(0).assigned == "lou" && results.at(0).tester == "Lou", "a result leaves whose the case is");
+
+        // ---- a run of what failed
+        QaRun again;
+        again.name = " ";
+        check(!db.createRerun(again, run.id, { "Failed", "Blocked" }, error) && error == "A test run needs a name.", "a run needs a name");
+        again.name = "Beta 3 - failed again";
+        check(!db.createRerun(again, run.id, { "Failed", "Blocked" }, error) && error.startsWith("No test case of that run ended that way") && db.runs(projectId, runs, error)
+              && runs.size() == 1, "nothing failed: no run is made: " + error);
+        check(db.setResult(run.id, login.at(1).id, "Failed", "Let in", 1, "lou", error) && db.setResult(run.id, parts.at(0).id, "Blocked", "No server", 0, "pat", error),
+              "one fails, one is blocked");
+        check(db.createRerun(again, run.id, { "Failed", "Blocked" }, error) && again.id > 0 && again.projectId == projectId && db.results(again.id, results, error)
+              && results.size() == 2 && results.at(0).caseKey == "S-LOGIN-002" && results.at(0).status == "Not run" && results.at(0).notes.isEmpty()
+              && results.at(0).assigned == "lou" && results.at(1).caseKey == "S-PARTS-001" && results.at(1).assigned.isEmpty(),
+              "a run of what failed and was blocked: each not run, for whom it was: " + error);
+        check(db.runs(projectId, runs, error) && runs.size() == 2 && again.builds.startsWith("Server: 0.2.0 Beta") && again.build == "0.2.0 Beta",
+              "of the same builds unless it says its own");
+        QList<QaResult> before;
+        check(db.results(run.id, before, error) && before.at(1).status == "Failed" && before.at(1).notes == "Let in", "the run it was made from stays as it is");
+        QaRun other;
+        other.name = "Only what failed, of a new build";
+        other.build = "0.2.1";
+        check(db.createRerun(other, run.id, { "Failed" }, error) && db.results(other.id, results, error) && results.size() == 1 && other.build == "0.2.1" && other.builds.isEmpty(),
+              "only what failed, of another build: " + error);
+        check(!db.createRerun(other, 999999, { "Failed" }, error) && error == "That test run is not there any more.", "a run that is not there: " + error);
+
+        // ---- files that go with a result
+        const QString source = folder.filePath("what went wrong.log");
+        {
+            QFile log(source);
+            log.open(QIODevice::WriteOnly);
+            log.write("line one\nline two\n");
+        }
+        check(db.attachmentsFolder() == folder.filePath("qa/attachments"), "files are kept beside the database: " + db.attachmentsFolder());
+        QaAttachment first, second;
+        check(db.attach(run.id, login.at(1).id, source, "", first, error) && first.id > 0 && first.name == "what went wrong.log" && first.addedBy == "pat"
+              && first.file.startsWith(QStringLiteral("%1/%2-").arg(run.id).arg(login.at(1).id)) && first.file.endsWith("-what-went-wrong.log")
+              && QFile(db.attachmentPath(first)).size() == 18 && db.attachmentPath(first).startsWith(folder.filePath("qa/attachments/")),
+              "a copy of a file goes with a result: " + error + " " + first.file);
+        check(db.attach(run.id, login.at(1).id, source, "screenshot 1.png", second, error) && second.name == "screenshot 1.png" && second.file != first.file
+              && QFileInfo::exists(db.attachmentPath(second)), "the same file twice is two copies, called as said: " + error);
+        QList<QaAttachment> files;
+        check(db.attachments(run.id, login.at(1).id, files, error) && files.size() == 2 && files.at(0).id == first.id && files.at(1).name == "screenshot 1.png"
+              && db.attachments(run.id, login.at(0).id, files, error) && files.isEmpty(), "a result's files, the oldest first");
+        check(db.results(run.id, results, error) && results.at(1).attachments == 2 && results.at(0).attachments == 0, "a result says how many it has");
+        QaAttachment none;
+        check(!db.attach(run.id, 999999, source, "", none, error) && error == "That test case is not part of the run."
+              && !db.attach(run.id, login.at(1).id, folder.filePath("no such file.log"), "", none, error) && error.startsWith("There is no file "),
+              "not to a case that is not in the run, and not a file that is not there: " + error);
+        const QString firstPath = db.attachmentPath(first);
+        check(db.removeAttachment(first.id, error) && !QFileInfo::exists(firstPath) && QFileInfo::exists(db.attachmentPath(second)) && db.attachments(run.id, login.at(1).id, files, error)
+              && files.size() == 1, "a file is taken away, and its copy with it: " + error);
+        // What a file belongs to takes it along.
+        QaAttachment onParts;
+        check(db.attach(run.id, parts.at(0).id, source, "", onParts, error) && db.attach(again.id, parts.at(0).id, source, "", none, error), "files on another case, in two runs");
+        const QString onPartsPath = db.attachmentPath(onParts);
+        const QString inAgainPath = db.attachmentPath(none);
+        check(db.deleteCase(parts.at(0).id, error) && !QFileInfo::exists(onPartsPath) && !QFileInfo::exists(inAgainPath) && QFileInfo::exists(db.attachmentPath(second)),
+              "a case that is deleted takes its files in every run: " + error);
+        const QString secondPath = db.attachmentPath(second);
+        check(db.deleteRun(run.id, error) && !QFileInfo::exists(secondPath) && !QDir(folder.filePath(QStringLiteral("qa/attachments/%1").arg(run.id))).exists()
+              && QFileInfo::exists(source), "a run that is deleted takes its files and its folder - never the file they were copied from: " + error);
+        QaDatabase memory;
+        QaRun inMemory;
+        inMemory.name = "In memory";
+        check(memory.open(":memory:", error) && memory.importJson(sampleScripts(), counts, error) && memory.projects(projects, error), "a database in memory");
+        inMemory.projectId = projects.value(0).id;
+        check(memory.createRun(inMemory, {}, error) && memory.results(inMemory.id, results, error) && memory.attachmentsFolder().isEmpty()
+              && !memory.attach(inMemory.id, results.at(0).caseId, source, "", none, error) && error.startsWith("Files are kept beside the database"),
+              "has nowhere to keep files, and says so: " + error);
+
+        // ---- a database from before all this
+        db.close();
+        bool dropped = false;
+        {
+            QSqlDatabase raw = QSqlDatabase::addDatabase("QSQLITE", "raw2");
+            raw.setDatabaseName(file);
+            if (raw.open())
+            {
+                QSqlQuery query(raw);
+                dropped = query.exec("DROP INDEX attachments_of_result") && query.exec("DROP TABLE attachments") && query.exec("ALTER TABLE results DROP COLUMN assigned")
+                          && query.exec("ALTER TABLE runs DROP COLUMN builds") && query.exec("ALTER TABLE projects DROP COLUMN components");
+            }
+            raw.close();
+        }
+        QSqlDatabase::removeDatabase("raw2");
+        check(dropped && db.open(file, error) && db.projects(projects, error) && projects.size() == 1 && projects.at(0).components.isEmpty() && db.runs(projects.at(0).id, runs, error)
+              && runs.size() == 2 && runs.at(0).builds.isEmpty() && db.results(runs.at(0).id, results, error) && !results.isEmpty() && results.at(0).assigned.isEmpty()
+              && results.at(0).attachments == 0, "a database from an older version is brought up to date and keeps its runs: " + error);
+    }
+
+    void fastWindowTests()
+    {
+        QTemporaryDir folder;
+        const QString file = folder.filePath("qatest.sqlite");
+        QString error;
+        QaImportCounts counts;
+        QaDatabase db;
+        db.setUser("pat");
+        QJsonObject scripts = sampleScripts();
+        scripts.insert("components", QJsonArray { "Server", "Desktop app", "Phone app" });
+        check(db.open(file, error) && db.importJson(scripts, counts, error), "a database for running: " + error);
+
+        MainWindow window(&db);
+        RunPanel *runs = window.runPanel();
+        auto *table = runs->findChild<QTableWidget *>("runResults");
+        auto *filter = runs->findChild<QComboBox *>("runFilter");
+        auto *whose = runs->findChild<QComboBox *>("runWhose");
+        auto *builds = runs->findChild<QLabel *>("runBuilds");
+        auto *rerun = runs->findChild<QPushButton *>("runRerun");
+        auto *modeButton = runs->findChild<QPushButton *>("runMode");
+        auto *assign = runs->findChild<QPushButton *>("runAssign");
+        auto *filesLabel = runs->findChild<QLabel *>("runFiles");
+        auto *summary = runs->findChild<QLabel *>("runSummary");
+        auto *passed = runs->findChild<QPushButton *>("markPassed");
+        auto *newRun = runs->findChild<QPushButton *>("newRun");
+        check(table && filter && whose && builds && rerun && modeButton && assign && filesLabel && summary && passed && newRun, "the run panel's pieces for running faster");
+        if (!table || !filter || !whose || !builds || !rerun || !modeButton || !assign || !filesLabel || !summary || !passed || !newRun)
+            return;
+        check(!modeButton->isEnabled() && !assign->isEnabled() && !rerun->isEnabled() && builds->isHidden(), "nothing to run while there is no run");
+
+        // ---- a run that says the build of each component
+        check(runs->createRun("Beta 3", "0.2.0", "pat", {}, error, "Server: 0.2.0, built 07:50\nPhone app: 0.2.0, built 06:12") && runs->tester() == "pat", "a run is made: " + error);
+        check(!builds->isHidden() && builds->text().startsWith("Tested: Server: 0.2.0, built 07:50") && builds->text().endsWith("Phone app: 0.2.0, built 06:12"),
+              "the panel says what is tested: " + builds->text());
+        check(table->columnCount() == 9 && table->horizontalHeaderItem(7)->text() == "For" && table->horizontalHeaderItem(8)->text() == "Files" && table->rowCount() == 3
+              && modeButton->isEnabled() && assign->isEnabled() && !rerun->isEnabled(), "its cases, with whose they are and their files");
+
+        // ---- whose a case is
+        table->clearSelection();
+        check(!runs->assignSelected("lou", error) && error == "Select the test cases first.", "nothing selected, nothing assigned");
+        table->selectRow(0);
+        table->selectionModel()->select(table->model()->index(1, 0), QItemSelectionModel::Select | QItemSelectionModel::Rows);
+        check(runs->assignSelected("lou", error) && table->item(0, 7)->text() == "lou" && table->item(1, 7)->text() == "lou" && table->item(2, 7)->text().isEmpty(),
+              "two selected cases are Lou's: " + error);
+        table->selectRow(2);
+        check(runs->assignSelected("PAT", error) && table->item(2, 7)->text() == "PAT", "one is Pat's: " + error);
+        whose->setCurrentIndex(1);
+        check(table->rowCount() == 1 && table->item(0, 1)->text() == "S-PARTS-001", "My cases shows a tester their own, however the name is written");
+        whose->setCurrentIndex(2);
+        check(table->rowCount() == 0 && !modeButton->isEnabled(), "Nobody's cases: none here");
+        whose->setCurrentIndex(0);
+        check(table->rowCount() == 3, "and everybody's again");
+
+        // ---- Run Mode
+        table->selectRow(0);
+        RunMode *mode = runs->openRunMode();
+        check(mode && mode->count() == 3 && mode->position() == 1, "Run Mode on the cases that are shown, at the selected one");
+        if (!mode)
+            return;
+        auto *progress = mode->findChild<QLabel *>("modeProgress");
+        auto *title = mode->findChild<QLabel *>("modeTitle");
+        auto *beforeLabel = mode->findChild<QLabel *>("modeBefore");
+        auto *steps = mode->findChild<QTableWidget *>("modeSteps");
+        auto *notes = mode->findChild<QPlainTextEdit *>("modeNotes");
+        auto *problem = mode->findChild<QLabel *>("modeProblem");
+        auto *fileList = mode->findChild<QListWidget *>("modeFiles");
+        check(progress && title && beforeLabel && steps && notes && problem && fileList, "its pieces");
+        if (!progress || !title || !beforeLabel || !steps || !notes || !problem || !fileList)
+            return;
+        check(progress->text().startsWith("Case 1 of 3") && progress->text().contains("3 not run") && progress->text().contains("Login") && progress->text().endsWith("for lou"),
+              "where it is: " + progress->text());
+        check(title->text() == "S-LOGIN-001  Log in" && steps->rowCount() == 2 && steps->item(1, 2)->text() == "The main window opens"
+              && beforeLabel->text().contains("Tested: Server: 0.2.0, built 07:50; Phone app: 0.2.0, built 06:12") && beforeLabel->text().contains("Run on: Desktop")
+              && beforeLabel->text().contains("Before you start: A user exists") && title->font().pointSizeF() > window.font().pointSizeF() * 1.4,
+              "the case, large, with what is tested and what has to be there: " + beforeLabel->text());
+        mode->mark("Passed");
+        check(mode->position() == 2 && title->text() == "S-LOGIN-002  A wrong password" && table->item(0, 3)->text().endsWith("Passed") && table->item(0, 4)->text() == "pat"
+              && progress->text().contains("2 not run"), "P: stored, by whoever is testing, and on to the next: " + progress->text());
+        mode->mark("Failed");
+        check(mode->position() == 2 && !problem->isHidden() && problem->text().startsWith("Say in the notes what happened") && table->item(1, 3)->text() == "Not run",
+              "F wants a note first");
+        notes->setPlainText("It was let in");
+        mode->mark("Failed");
+        check(mode->position() == 3 && table->item(1, 3)->text().endsWith("Failed") && table->item(1, 6)->text() == "It was let in" && notes->toPlainText().isEmpty(),
+              "then it is stored, and the next case starts with empty notes");
+
+        // Files that go with the result.
+        const QString log = folder.filePath("server.log");
+        {
+            QFile written(log);
+            written.open(QIODevice::WriteOnly);
+            written.write("what the server said");
+        }
+        check(mode->attachFile(log) && fileList->count() == 1 && fileList->item(0)->text() == "server.log" && table->item(2, 8)->text() == "1",
+              "a file goes with the result, and the panel counts it");
+        check(!mode->attachFile(folder.filePath("none.log")) && !problem->isHidden() && problem->text().startsWith("There is no file ") && fileList->count() == 1,
+              "one that is not there is said: " + problem->text());
+        QImage picture(40, 30, QImage::Format_RGB32);
+        picture.fill(Qt::white);
+        QGuiApplication::clipboard()->setImage(picture);
+        if (!QGuiApplication::clipboard()->image().isNull())
+        {
+            check(mode->pasteScreenshot() && fileList->count() == 2 && fileList->item(1)->text().startsWith("screenshot-") && fileList->item(1)->text().endsWith(".png")
+                  && table->item(2, 8)->text() == "2", "a picture on the clipboard is pasted as a screenshot");
+            QList<QaAttachment> files;
+            db.attachments(runs->runId(), mode->caseId(), files, error);
+            const QImage read(db.attachmentPath(files.value(1)));
+            check(files.size() == 2 && read.width() == 40 && read.height() == 30, "which is that picture, as a PNG beside the database");
+            QGuiApplication::clipboard()->setText("only words");
+            check(!mode->pasteScreenshot() && problem->text().startsWith("There is no picture on the clipboard") && fileList->count() == 2, "words are no picture: " + problem->text());
+            check(mode->removeAttachment(1) && fileList->count() == 1 && !QFileInfo::exists(db.attachmentPath(files.value(1))), "a file is removed, with its copy");
+        }
+        mode->mark("Blocked");
+        check(mode->position() == 3 && !problem->isHidden() && problem->text().startsWith("That was the last one: every case here has a result")
+              && progress->text().contains("all have a result") && progress->text().contains("now: Blocked (pat)") && fileList->count() == 1,
+              "the last one says so, and stays: " + progress->text());
+        mode->go(1);
+        check(mode->position() == 3 && problem->text() == "This is the last case.", "no further");
+        mode->go(-1);
+        check(mode->position() == 2 && notes->toPlainText() == "It was let in" && problem->isHidden() && fileList->count() == 0, "back to the case before, with what was noted");
+        mode->mark("Not run");
+        check(mode->position() == 2 && table->item(1, 3)->text() == "Not run" && progress->text().contains("1 not run"), "U takes a result back and stays");
+        mode->mark("Failed");
+        check(table->item(1, 3)->text().endsWith("Failed") && problem->text().startsWith("That was the last one"), "and it is failed again");
+        mode->go(-1);
+        mode->go(-1);
+        check(mode->position() == 1 && problem->text() == "This is the first case.", "nor before the first");
+        mode->accept();
+
+        // The panel shows the files of the selected case.
+        table->selectRow(2);
+        check(!filesLabel->isHidden() && filesLabel->text().startsWith("Files: server.log"), "the panel names a result's files: " + filesLabel->text());
+        table->selectRow(0);
+        check(filesLabel->isHidden(), "and nothing where there are none");
+        // Run Mode is for what is shown.
+        filter->setCurrentIndex(filter->findText("Failed"));
+        mode = runs->openRunMode();
+        check(mode && mode->count() == 1 && mode->position() == 1 && mode->findChild<QLabel *>("modeTitle")->text().startsWith("S-LOGIN-002"), "Run Mode on the failures alone");
+        if (mode)
+            mode->accept();
+        filter->setCurrentIndex(0);
+
+        // ---- the report
+        const QString html = runs->reportHtml();
+        check(html.contains("<th width=\"22%\">Server</th><td>0.2.0, built 07:50</td>") && html.contains("<th width=\"22%\">Phone app</th>") && html.contains("[1 file attached]"),
+              "the report says the build of each component, and where files were attached");
+
+        // ---- a run of what failed
+        const qint64 firstRun = runs->runId();
+        check(rerun->isEnabled() && !runs->createRerun(" ", error) && runs->runId() == firstRun, "Run Failed Again wants a name");
+        check(runs->createRerun("Beta 3 - failed again", error) && runs->runId() != firstRun && table->rowCount() == 2 && table->item(0, 1)->text() == "S-LOGIN-002"
+              && table->item(0, 3)->text() == "Not run" && table->item(0, 7)->text() == "lou" && table->item(1, 1)->text() == "S-PARTS-001" && table->item(1, 7)->text() == "PAT"
+              && table->item(1, 8)->text().isEmpty() && summary->text().startsWith("2 test cases: 0 passed") && !rerun->isEnabled()
+              && builds->text().startsWith("Tested: Server: 0.2.0, built 07:50"), "a new run of what failed and was blocked: " + error + " " + summary->text());
+        // Run Mode begins at the first case that is not run.
+        table->selectRow(0);
+        passed->click();
+        table->selectRow(0);
+        mode = runs->openRunMode();
+        check(mode && mode->position() == 2, "Run Mode begins where there is something to do");
+        if (mode)
+            mode->accept();
+
+        // ---- New Run... starts from the builds of the run before
+        newRun->click();
+        auto *dialog = runs->findChild<QDialog *>("newRunDialog");
+        auto *server = dialog ? dialog->findChild<QLineEdit *>("runBuildOfServer") : nullptr;
+        auto *desktop = dialog ? dialog->findChild<QLineEdit *>("runBuildOfDesktopapp") : nullptr;
+        auto *phone = dialog ? dialog->findChild<QLineEdit *>("runBuildOfPhoneapp") : nullptr;
+        check(server && desktop && phone && server->text() == "0.2.0, built 07:50" && desktop->text().isEmpty() && phone->text() == "0.2.0, built 06:12",
+              "New Run asks for the build of each component, filled in as the run before said");
+        if (dialog)
+            dialog->reject();
+
+        // ---- a finished run is not worked through
+        QList<QaRun> all;
+        db.runs(runs->projectId(), all, error);
+        for (QaRun run : std::as_const(all))
+        {
+            if (run.id != runs->runId())
+                continue;
+            run.finished = "2026-10-09T10:00:00Z";
+            db.updateRun(run, error);
+        }
+        window.reload();
+        check(!modeButton->isEnabled() && runs->openRunMode() == nullptr, "a finished run has no Run Mode");
+    }
 }
 
 int main(int argc, char *argv[])
@@ -885,6 +1235,8 @@ int main(int argc, char *argv[])
     scriptTests();
     bundledTests();
     windowTests();
+    fastTests();
+    fastWindowTests();
 
     QTextStream out(stdout);
     if (g_failures == 0)
