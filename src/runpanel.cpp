@@ -50,6 +50,15 @@ RunPanel::RunPanel(QaDatabase *database, QWidget *parent)
     , m_database(database)
     , m_tester(QSettings().value(QStringLiteral("Tester")).toString())
 {
+    // Who is testing here: the name given for a run the last time, else the one they
+    // are logged in to Windows with - so that a result in a shared run says whose it is.
+    if (m_tester.trimmed().isEmpty())
+        m_tester = QaDatabase::systemUser();
+    build();
+}
+
+void RunPanel::build()
+{
     m_run = new QComboBox(this);
     m_run->setObjectName(QStringLiteral("runChoice"));
     m_run->setMinimumContentsLength(30);
@@ -361,7 +370,7 @@ void RunPanel::store(const QString &status)
     }
     QString error;
     if (!m_database->setResult(run.id, result.caseId, status, m_notes->toPlainText().trimmed(), m_failedStep->value(),
-                               run.tester.isEmpty() ? m_tester : run.tester, error))
+                               m_tester.isEmpty() ? run.tester : m_tester, error))
     {
         m_problem->setText(error);
         m_problem->show();

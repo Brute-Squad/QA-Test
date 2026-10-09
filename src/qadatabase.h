@@ -59,6 +59,10 @@ struct QaCase
     QString notes;
     QList<QaStep> steps;    // filled by loadCase(), not by cases()
     QString lastStatus;     // told by cases(): its result in the newest run that has one ("" = never run)
+    // The database may be shared: a case counts its changes, and says whose the last was.
+    int     revision = 0;   // told by loadCase(); saveCase() stores only on the revision that was read (0 = do not ask)
+    QString changedBy;      // who stored it last ("" = not known: a script that was imported, an older version)
+    QString updated;        // when, ISO 8601, UTC
 };
 
 struct QaRun
@@ -130,6 +134,24 @@ public:
     void setBusyTimeout(int seconds) { m_busyTimeoutSeconds = seconds < 0 ? 0 : seconds; }
     QString path() const { return m_path; }
 
+    // The file is there and can be read: false, with the reason in words for
+    // whoever is testing, when a shared drive has gone.
+    bool reachable(QString &error);
+    // Opens the same file again - after it was lost and has come back. Never
+    // makes one: a database that is not there stays lost.
+    bool reopen(QString &error);
+    // Is the file sound (SQLite's own check)? `problem` says what it found.
+    bool sound(QString &problem);
+    // A copy of the database as it is now, complete in itself, into a file
+    // that is not there yet (VACUUM INTO: safe while others work in it).
+    bool copyTo(const QString &file, QString &error);
+
+    // Who is at this PC: written beside what they change. The name they are
+    // logged in to Windows with, unless said.
+    static QString systemUser();
+    void setUser(const QString &name) { m_user = name.trimmed(); }
+    QString user() const { return m_user; }
+
     static QStringList statuses();      // "Not run", "Passed", "Failed", "Blocked", "Skipped"
     static QStringList priorities();    // "High", "Medium", "Low"
     static QString notRun()  { return QStringLiteral("Not run"); }
@@ -153,7 +175,11 @@ public:
     // ---- cases (by key)
     bool cases(qint64 suiteId, QList<QaCase> &list, QString &error);        // without their steps
     bool loadCase(qint64 id, QaCase &testCase, QString &error);             // with them
-    bool saveCase(QaCase &testCase, QString &error);                        // id 0 = a new one; sets its id
+    // id 0 = a new one; sets its id. A case that somebody else stored since it
+    // was read is not written over: false, saveConflicted() is true and the
+    // error says who and when - unless `overwrite` says to do it all the same.
+    bool saveCase(QaCase &testCase, QString &error, bool overwrite = false);
+    bool saveConflicted() const { return m_conflict; }
     bool deleteCase(qint64 id, QString &error);
     // The next free key of a suite's project that starts as that suite's keys do ("FI-PARTS-004").
     QString nextKey(qint64 suiteId);
@@ -184,10 +210,13 @@ public:
 private:
     bool exec(const QString &sql, const QVariantList &values, QString &error, class QSqlQuery *query = nullptr);
     bool createTables(QString &error);
+    bool addMissingColumn(const QString &table, const QString &column, const QString &definition, QString &error);
 
     QString m_connection;
     QString m_path;
     int     m_busyTimeoutSeconds = 10;
+    QString m_user;
+    bool    m_conflict = false;
 };
 
 #endif // QADATABASE_H

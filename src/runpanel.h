@@ -51,6 +51,7 @@ signals:
     void resultStored();
 
 private:
+    void build();
     void loadRuns(qint64 selectId = 0);
     void showRun();
     void showSelected();

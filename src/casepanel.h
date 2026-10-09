@@ -18,6 +18,11 @@ class QTableWidget;
 // Save stores it (enabled once something was changed and it has a key and a
 // title), Revert puts back what is stored. The panel talks to the database
 // itself and says saved() when the tree is to follow.
+//
+// The database may be shared: a case that somebody else stored while it was
+// open here is not written over. Save then says who changed it and when, and
+// what was typed stays; Revert shows their version, Save Mine Anyway - which
+// is there only then - stores this one over it.
 class CasePanel : public QWidget
 {
     Q_OBJECT
@@ -33,7 +38,8 @@ public:
     qint64 caseId() const { return m_case.id; }
     bool isChanged() const { return m_changed; }
     // Store what is typed; false - with the reason shown - if it cannot be.
-    bool save();
+    // `overwrite`: also over what somebody else stored meanwhile.
+    bool save(bool overwrite = false);
 
 signals:
     void saved(qint64 caseId);
@@ -46,7 +52,7 @@ private:
     void addStep(const QaStep &step, int row = -1);
     void moveStep(int by);
     void showHistory();
-    void showProblem(const QString &text);
+    void showProblem(const QString &text, bool conflict = false);
 
     QaDatabase     *m_database = nullptr;
     QaCase          m_case;
@@ -65,6 +71,8 @@ private:
     QLabel         *m_problem = nullptr;
     QPushButton    *m_save = nullptr;
     QPushButton    *m_revert = nullptr;
+    QPushButton    *m_overwrite = nullptr;
+    QLabel         *m_changedBy = nullptr;
     QPushButton    *m_addStep = nullptr;
     QPushButton    *m_removeStep = nullptr;
     QPushButton    *m_up = nullptr;

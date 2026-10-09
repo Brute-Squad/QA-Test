@@ -9,12 +9,19 @@
 //   the scripts    every file in scripts/ is read into an empty database:
 //                  each can be imported, and each of its cases has steps
 //                  that say what to expect
+//   sharing        what a database on a shared drive needs: two people in
+//                  one file - a case one of them stored is not written over
+//                  by the other - a database from before, a copy a day, a
+//                  drive letter as the share's own name, the window while
+//                  the database is away, File > Use a Shared Database
 //   the window     the program's own window and panels, offscreen, on a
 //                  database in memory: the tree, a case edited and saved, a
 //                  run made and worked through, its report
 #include "casepanel.h"
 #include "mainwindow.h"
+#include "qabackup.h"
 #include "qaconfig.h"
+#include "qashare.h"
 #include "qadatabase.h"
 #include "report.h"
 #include "runpanel.h"
@@ -32,6 +39,8 @@
 #include <QSet>
 #include <QSettings>
 #include <QSpinBox>
+#include <QSqlDatabase>
+#include <QSqlQuery>
 #include <QTableWidget>
 #include <QTemporaryDir>
 #include <QTextStream>
@@ -517,6 +526,345 @@ namespace
         check(Report::savePdf(html, folder.filePath("report.pdf"), error) && QFile(folder.filePath("report.pdf")).size() > 1000, "and as a PDF: " + error);
         check(!Report::saveHtml(html, folder.filePath("no/such/folder/report.html"), error) && !error.isEmpty(), "a folder that is not there is said");
     }
+
+    // ---- a database several people work in ---------------------------------------------------------
+    void sharedTests()
+    {
+        QTemporaryDir folder;
+        const QString file = folder.filePath("team/qatest.sqlite");
+        QString error;
+        QaImportCounts counts;
+
+        // ---- two people in one file
+        QaDatabase pat, lou;
+        pat.setUser("pat");
+        lou.setUser(" lou ");
+        check(QaDatabase().user() == QaDatabase::systemUser() && !QaDatabase::systemUser().isEmpty() && lou.user() == "lou",
+              "who is at this PC: the name they are logged in with, unless said");
+        check(pat.open(file, error) && pat.importJson(sampleScripts(), counts, error) && lou.open(file, error), "two programs in one database: " + error);
+        QList<QaProject> projects;
+        QList<QaSuite> suites;
+        QList<QaCase> cases;
+        pat.projects(projects, error);
+        pat.suites(projects.value(0).id, suites, error);
+        pat.cases(suites.value(0).id, cases, error);
+        const qint64 id = cases.value(0).id;
+        const qint64 second = cases.value(1).id;
+        QaCase pats, lous, read;
+        check(pat.loadCase(id, pats, error) && lou.loadCase(id, lous, error) && pats.revision == 1 && lous.revision == 1 && pats.changedBy.isEmpty() && !pats.updated.isEmpty(),
+              "both read the same case, at the same revision");
+        lous.title = "Log in, as Lou wrote it";
+        check(lou.saveCase(lous, error) && !lou.saveConflicted() && lous.revision == 2 && lous.changedBy == "lou", "the first to store it does: " + error);
+        pats.title = "Log in, as Pat wrote it";
+        pats.steps.clear();
+        check(!pat.saveCase(pats, error) && pat.saveConflicted() && error.startsWith("lou changed this test case at ") && error.endsWith("while you had it open. Nothing was stored."),
+              "the second is told who was first: " + error);
+        check(pat.loadCase(id, read, error) && read.title == "Log in, as Lou wrote it" && read.steps.size() == 2 && read.revision == 2,
+              "and nothing of the first's is written over - not the steps either");
+        check(pat.saveCase(pats, error, true) && !pat.saveConflicted() && pats.revision == 3 && pat.loadCase(id, read, error) && read.title == "Log in, as Pat wrote it"
+              && read.changedBy == "pat" && read.revision == 3, "unless the second says so: " + error);
+        check(lou.loadCase(id, lous, error), "read again");
+        lous.notes = "Read again";
+        check(lou.saveCase(lous, error) && !lou.saveConflicted() && lous.revision == 4, "what was read again is stored as ever: " + error);
+        // A key that is taken is refused as ever - that is no conflict.
+        check(lou.loadCase(id, lous, error), "read once more");
+        lous.key = "S-LOGIN-002";
+        check(!lou.saveCase(lous, error) && !lou.saveConflicted() && error.contains("with the key S-LOGIN-002 already"), "a key that is taken is no conflict: " + error);
+        // Test scripts that are read in again change their cases too.
+        check(pat.loadCase(second, pats, error) && lou.importJson(sampleScripts(), counts, error), "scripts are imported while a case is open");
+        pats.notes = "Mine";
+        check(!pat.saveCase(pats, error) && pat.saveConflicted() && error.startsWith("Somebody else changed this test case at "), "an import is a change by nobody in particular: " + error);
+        // A case that is gone.
+        check(pat.loadCase(id, pats, error) && lou.deleteCase(id, error) && !pat.saveCase(pats, error) && !pat.saveConflicted()
+              && error.startsWith("This test case was deleted while you had it open."), "a case that was deleted meanwhile: " + error);
+        QaCase fresh;
+        fresh.suiteId = suites.value(0).id;
+        fresh.key = "S-LOGIN-009";
+        fresh.title = "A new one";
+        check(pat.saveCase(fresh, error) && fresh.revision == 1 && pat.loadCase(fresh.id, read, error) && read.revision == 1 && read.changedBy == "pat",
+              "a new case starts at revision 1, with who made it: " + error);
+        // A case whoever stores it did not read (revision 0) is stored without asking.
+        read.revision = 0;
+        read.title = "Stored unread";
+        check(pat.saveCase(read, error) && read.revision == 2, "what was not read is not asked about: " + error);
+
+        // ---- a database from before the revisions
+        pat.close();
+        lou.close();
+        bool dropped = false;
+        {
+            QSqlDatabase raw = QSqlDatabase::addDatabase("QSQLITE", "raw");
+            raw.setDatabaseName(file);
+            if (raw.open())
+            {
+                QSqlQuery query(raw);
+                dropped = query.exec("ALTER TABLE cases DROP COLUMN revision") && query.exec("ALTER TABLE cases DROP COLUMN changed_by");
+            }
+            raw.close();
+        }
+        QSqlDatabase::removeDatabase("raw");
+        check(dropped, "a database as an older version left it");
+        check(pat.open(file, error) && lou.open(file, error) && pat.loadCase(second, read, error) && read.revision == 1 && read.changedBy.isEmpty() && read.title == "A wrong password",
+              "is brought up to date when it is opened, by whoever is first - and keeps its cases: " + error);
+        read.notes = "After the update";
+        check(pat.saveCase(read, error) && read.revision == 2, "and its cases count their changes from then on: " + error);
+
+        // ---- is it there, is it sound
+        QString problem;
+        check(pat.reachable(error) && pat.reopen(error) && pat.path() == file && pat.loadCase(second, read, error) && read.notes == "After the update",
+              "a database that is there can be reached, and opened again: " + error);
+        check(pat.sound(problem) && problem.isEmpty(), "and is sound: " + problem);
+        QaDatabase none, memory;
+        check(!none.reachable(error) && error == "No database is open." && !none.reopen(error) && !none.isOpen(), "none is open: " + error);
+        check(memory.open(":memory:", error) && memory.reachable(error) && memory.reopen(error) && memory.isOpen(), "one in memory is always there");
+        const QString copy = folder.filePath("copies/one.sqlite");
+        QaDatabase other;
+        check(pat.copyTo(copy, error) && other.open(copy, error) && other.projects(projects, error) && projects.size() == 1 && projects.at(0).name == "Sample",
+              "a copy is a database of its own: " + error);
+        other.close();
+        check(!pat.copyTo(copy, error) && error.endsWith("is there already."), "and is never written over a file that is there: " + error);
+
+        // ---- a copy a day
+        const QDate day(2026, 10, 9);
+        const QString backups = folder.filePath("team/backups");
+        check(QaBackup::fileNameFor(file, day) == "qatest-2026-10-09.sqlite" && QaBackup::folderFor(file) == backups && QaBackup::folderFor(file, " D:/Copies/ ") == "D:/Copies"
+              && QaBackup::copies(file).isEmpty(), "what a day's copy is called, and where it goes: " + QaBackup::folderFor(file));
+        QaBackupOutcome outcome = QaBackup::daily(pat, day, 3);
+        check(outcome.made && outcome.problem.isEmpty() && outcome.file == backups + "/qatest-2026-10-09.sqlite" && QFileInfo::exists(outcome.file) && outcome.removed == 0,
+              "the first start of a day makes the day's copy: " + outcome.problem + " " + outcome.file);
+        check(other.open(outcome.file, error) && other.projects(projects, error) && projects.size() == 1, "which is the database as it was: " + error);
+        other.close();
+        const QDateTime written = QFileInfo(outcome.file).lastModified();
+        outcome = QaBackup::daily(lou, day, 3);
+        check(!outcome.made && outcome.problem.isEmpty() && outcome.file == backups + "/qatest-2026-10-09.sqlite" && QFileInfo(outcome.file).lastModified() == written,
+              "the next start of that day - anybody's - leaves it alone");
+        // What else is in the folder is nobody's business.
+        for (const QString &name : { QString("notes.txt"), QString("other-2026-01-01.sqlite"), QString("qatest-old.sqlite") })
+        {
+            QFile foreign(backups + "/" + name);
+            foreign.open(QIODevice::WriteOnly);
+            foreign.write("not ours");
+        }
+        int removed = 0;
+        for (int later = 1; later <= 4; ++later)
+        {
+            outcome = QaBackup::daily(pat, day.addDays(later), 3);
+            check(outcome.made && outcome.problem.isEmpty(), QStringLiteral("day %1 has its copy: %2").arg(later).arg(outcome.problem));
+            removed += outcome.removed;
+        }
+        const QStringList copies = QaBackup::copies(file);
+        check(copies.size() == 3 && removed == 2 && copies.at(0).endsWith("qatest-2026-10-13.sqlite") && copies.at(2).endsWith("qatest-2026-10-11.sqlite"),
+              "the newest three are kept, the oldest deleted: " + copies.join(" "));
+        check(QFileInfo::exists(backups + "/notes.txt") && QFileInfo::exists(backups + "/other-2026-01-01.sqlite") && QFileInfo::exists(backups + "/qatest-old.sqlite")
+              && QDir(backups).entryList({ "*.tmp" }).isEmpty(), "nothing else in the folder is touched, and nothing half made is left");
+        outcome = QaBackup::daily(pat, day.addDays(20), 0);
+        check(!outcome.made && outcome.file.isEmpty() && outcome.problem.isEmpty() && QaBackup::copies(file).size() == 3, "keep 0: no copies are made, and none deleted");
+        outcome = QaBackup::daily(memory, day, 3);
+        check(!outcome.made && outcome.file.isEmpty() && outcome.problem.isEmpty(), "nor of a database in memory");
+        outcome = QaBackup::daily(pat, day, 2, folder.filePath("elsewhere"));
+        check(outcome.made && outcome.file == folder.filePath("elsewhere/qatest-2026-10-09.sqlite") && QaBackup::copies(file, folder.filePath("elsewhere")).size() == 1
+              && QaBackup::copies(file).size() == 3, "another folder for the copies: " + outcome.problem);
+
+        // A database that is not sound is not copied over the good copies.
+        pat.close();
+        lou.close();
+        {
+            QFile damaged(file);
+            if (damaged.open(QIODevice::ReadWrite) && damaged.size() > 3 * 4096)
+            {
+                damaged.seek(4096);
+                damaged.write(QByteArray(int(damaged.size()) - 4096, char(0xAB)));
+            }
+        }
+        if (pat.open(file, error))
+        {
+            const bool isSound = pat.sound(problem);
+            outcome = QaBackup::daily(pat, day.addDays(30), 3);
+            check(!isSound && !problem.isEmpty() && !outcome.made && outcome.problem.startsWith("No copy was made today: the database is not sound")
+                  && QaBackup::copies(file).size() == 3 && QaBackup::copies(file).at(0).endsWith("qatest-2026-10-13.sqlite"),
+                  "a damaged database is said, not copied, and the copies from before stay: " + problem + " / " + outcome.problem);
+            pat.close();
+        }
+        else
+            check(error.contains("damaged") || error.contains("could not be opened"), "a damaged database is said: " + error);
+
+        // ---- a drive letter is this PC's own; the share's name is everybody's
+        check(QaShare::withRemote("M:\\QA-Test\\data\\qatest.sqlite", "\\\\nas1\\MyMedia") == "\\\\nas1\\MyMedia\\QA-Test\\data\\qatest.sqlite",
+              "a path on a connected drive, under the share's name");
+        check(QaShare::withRemote("m:/QA/x.sqlite", "\\\\nas1\\MyMedia\\") == "\\\\nas1\\MyMedia\\QA\\x.sqlite" && QaShare::withRemote("M:", "//nas1/MyMedia") == "\\\\nas1\\MyMedia",
+              "however it is written");
+        check(QaShare::withRemote("\\\\a\\b\\c.sqlite", "\\\\x\\y").isEmpty() && QaShare::withRemote("M:\\x.sqlite", "").isEmpty()
+              && QaShare::withRemote("M:\\x.sqlite", "C:\\Somewhere").isEmpty() && QaShare::withRemote("data\\x.sqlite", "\\\\x\\y").isEmpty(),
+              "what has no drive letter, or a drive that is no share, has no such name");
+        check(QaShare::networkName(folder.path()).isEmpty() && QaShare::networkName("data/x.sqlite").isEmpty() && QaShare::networkName("\\\\server\\share\\x.sqlite").isEmpty(),
+              "a folder of this PC's own has none");
+        check(QaShare::isOnNetwork("\\\\server\\share\\x.sqlite") && QaShare::isOnNetwork("//server/share/x.sqlite") && !QaShare::isOnNetwork(folder.path()),
+              "what is on the network, and what is not");
+
+        // ---- the configuration: the copies
+        QaConfig config = QaConfigFile::parse("", "C:/Tools/QATest");
+        check(config.backupKeep == 14 && config.backupFolder.isEmpty(), "unless said: 14 copies, beside the database");
+        config = QaConfigFile::parse("[Backup]\nKeep=30\nFolder=D:\\QA backups\n[Database]\nPath=x.sqlite\n", "C:/Tools/QATest");
+        check(config.backupKeep == 30 && config.backupFolder == "D:/QA backups" && config.databasePath == "C:/Tools/QATest/x.sqlite" && config.problem.isEmpty(),
+              "how many copies, and where: " + config.backupFolder + " " + config.problem);
+        config = QaConfigFile::parse("[backup]\r\nfolder = copies\r\nkeep = 0\r\n", "C:/Tools/QATest");
+        check(config.backupKeep == 0 && config.backupFolder == "C:/Tools/QATest/copies", "none at all; a folder from the file's own: " + config.backupFolder);
+        config = QaConfigFile::parse("[Backup]\nKeep=many\n", "C:/Tools/QATest");
+        check(config.backupKeep == 14 && config.problem.contains("Keep is \"many\""), "what is no number is said: " + config.problem);
+        config = QaConfigFile::parse(QaConfigFile::sample(), "C:/Tools/QATest");
+        check(config.backupKeep == 14 && config.backupFolder.isEmpty() && config.problem.isEmpty() && QaConfigFile::sample().contains("[Backup]")
+              && QaConfigFile::sample().contains("\n;Keep=14"), "the file to start from explains them and sets none");
+        config = QaConfigFile::parse(QaConfigFile::withDatabasePath(QaConfigFile::sample(), "\\\\nas1\\MyMedia\\QA-Test\\data\\qatest.sqlite"), "C:/Tools/QATest");
+        check(config.databasePath == "//nas1/MyMedia/QA-Test/data/qatest.sqlite" && config.backupKeep == 14 && config.problem.isEmpty(),
+              "a database under its share's name, written into that file: " + config.databasePath);
+    }
+
+    // ---- the window, with somebody else in the same database ---------------------------------------
+    void sharedWindowTests()
+    {
+        QTemporaryDir folder;
+        const QString file = folder.filePath("qatest.sqlite");
+        const QString configFile = folder.filePath("config/QATest.ini");
+        QString error;
+        QaImportCounts counts;
+        QaDatabase db, lou;
+        db.setUser("pat");
+        lou.setUser("lou");
+        check(db.open(file, error) && db.importJson(sampleScripts(), counts, error) && lou.open(file, error), "a database for two: " + error);
+
+        MainWindow window(&db);
+        window.setDatabaseSource("It is the tests' own.", configFile);
+        QTreeWidget *tree = window.tree();
+        CasePanel *casePanel = window.casePanel();
+        auto *title = casePanel->findChild<QLineEdit *>("caseTitle");
+        auto *save = casePanel->findChild<QPushButton *>("caseSave");
+        auto *revert = casePanel->findChild<QPushButton *>("caseRevert");
+        auto *overwrite = casePanel->findChild<QPushButton *>("caseOverwrite");
+        auto *problem = casePanel->findChild<QLabel *>("caseProblem");
+        auto *changedBy = casePanel->findChild<QLabel *>("caseChangedBy");
+        auto *lostText = window.findChild<QLabel *>("lostText");
+        auto *retry = window.findChild<QPushButton *>("lostRetry");
+        check(title && save && revert && overwrite && problem && changedBy && lostText && retry, "the pieces for a shared database");
+        if (!title || !save || !revert || !overwrite || !problem || !changedBy || !lostText || !retry)
+            return;
+
+        // ---- who tests here
+        RunPanel *runs = window.runPanel();
+        auto *table = runs->findChild<QTableWidget *>("runResults");
+        auto *passed = runs->findChild<QPushButton *>("markPassed");
+        QList<QaProject> projects;
+        db.projects(projects, error);
+        QaRun run;
+        run.projectId = projects.value(0).id;
+        run.name = "Somebody else's run";
+        run.tester = "lou";
+        check(table && passed && lou.createRun(run, {}, error), "a run somebody else made: " + error);
+        window.reload();
+        if (table && passed && runs->runId() == run.id && table->rowCount() == 3)
+        {
+            passed->click();
+            check(table->item(0, 4)->text() == QaDatabase::systemUser() && !QaDatabase::systemUser().isEmpty(),
+                  "a result says who recorded it - the name they are logged in with - not who made the run: " + table->item(0, 4)->text());
+        }
+        else
+            check(false, "the run somebody else made is shown");
+
+        // ---- somebody else stores the case that is open here
+        check(window.selectCase("S-LOGIN-001") && overwrite->isHidden() && changedBy->text().startsWith("Last changed ") && !changedBy->text().contains(" by "),
+              "a case that was imported says when it was changed: " + changedBy->text());
+        const qint64 id = casePanel->caseId();
+        QaCase lous, read;
+        check(lou.loadCase(id, lous, error), "Lou has it open too");
+        lous.title = "Lou's title";
+        check(lou.saveCase(lous, error), "and stores it: " + error);
+        title->setText("Pat's title");
+        save->click();
+        check(!problem->isHidden() && problem->text().startsWith("lou changed this test case at ") && problem->text().contains("Save Mine Anyway stores yours over theirs")
+              && !overwrite->isHidden() && revert->isEnabled() && title->text() == "Pat's title" && casePanel->isChanged(),
+              "Save says who was first, and what was typed stays: " + problem->text());
+        check(lou.loadCase(id, read, error) && read.title == "Lou's title", "nothing of theirs is written over");
+        // Going to another case does not lose it either.
+        window.selectCase("S-LOGIN-002");
+        check(casePanel->caseId() == id && title->text() == "Pat's title" && tree->currentItem() && tree->currentItem()->text(0).contains("S-LOGIN-001") && !overwrite->isHidden(),
+              "choosing another case leaves the one that could not be saved, with what was typed");
+        overwrite->click();
+        check(lou.loadCase(id, read, error) && read.title == "Pat's title" && read.changedBy == "pat" && overwrite->isHidden() && problem->isHidden() && !casePanel->isChanged()
+              && changedBy->text().startsWith("Last changed by pat, "), "Save Mine Anyway stores it over theirs: " + changedBy->text());
+        // The other way: theirs.
+        check(lou.loadCase(id, lous, error), "Lou reads it again");
+        lous.title = "Lou's second title";
+        lou.saveCase(lous, error);
+        title->setText("Pat's second title");
+        save->click();
+        check(!overwrite->isHidden(), "the same again");
+        revert->click();
+        check(title->text() == "Lou's second title" && overwrite->isHidden() && problem->isHidden() && !casePanel->isChanged() && changedBy->text().startsWith("Last changed by lou, "),
+              "Revert shows their version: " + title->text());
+        // With nothing typed, the window simply follows.
+        check(lou.loadCase(id, lous, error), "and again");
+        lous.title = "Lou's third title";
+        lou.saveCase(lous, error);
+        window.reload();
+        check(title->text() == "Lou's third title" && tree->currentItem() && tree->currentItem()->text(0).endsWith("S-LOGIN-001  Lou's third title"),
+              "a case nobody is typing in shows what somebody else stored");
+
+        // ---- the database goes away, and comes back
+        check(!window.isLost(), "the database is there");
+        title->setText("Typed while the share was gone");
+        const int shown = tree->topLevelItem(0)->childCount();
+        db.close();
+        window.reload();
+        check(window.isLost() && lostText->text().contains("No database is open") && lostText->text().contains("What you see and what you typed stays here")
+              && tree->topLevelItemCount() == 1 && tree->topLevelItem(0)->childCount() == shown && title->text() == "Typed while the share was gone" && casePanel->isChanged(),
+              "a database that cannot be had is said in a line of its own, and what is shown and typed stays: " + lostText->text());
+        save->click();
+        check(!problem->isHidden() && title->text() == "Typed while the share was gone" && casePanel->isChanged(), "Save says why not, and keeps it: " + problem->text());
+        retry->click();
+        check(window.isLost(), "it is still away");
+        check(db.open(file, error), "the share is back: " + error);
+        retry->click();
+        check(!window.isLost() && title->text() == "Typed while the share was gone" && casePanel->isChanged(), "Try Again finds it, and does not put anything over what was typed");
+        save->click();
+        check(db.loadCase(id, read, error) && read.title == "Typed while the share was gone" && !casePanel->isChanged(), "which is then stored: " + error + " " + problem->text());
+
+        // ---- File > Use a Shared Database
+        const QString shared = folder.filePath("share/team.sqlite");
+        {
+            QaDatabase team;
+            QaProject project;
+            project.name = "Team";
+            check(team.open(shared, error) && team.addProject(project, error), "a database on the share: " + error);
+        }
+        QSettings().setValue("Database", file);
+        QString said = window.useSharedDatabase(folder.filePath("share/none.sqlite"), false);
+        check(said.startsWith("There is no database ") && db.path() == file && !QFileInfo::exists(configFile) && !QFileInfo::exists(folder.filePath("share/none.sqlite")),
+              "one that is not there is not made, and nothing changes: " + said);
+        said = window.useSharedDatabase(shared, true);
+        check(said.isEmpty() && db.path() == shared && tree->topLevelItemCount() == 1 && tree->topLevelItem(0)->text(0) == "Team" && casePanel->caseId() == 0,
+              "the shared database is the one in use: " + said);
+        const QaConfig config = QaConfigFile::read(configFile);
+        check(config.databasePath == shared && config.problem.isEmpty() && config.backupKeep == 14 && !QSettings().contains("Database"),
+              "and the configuration file says so from now on: " + config.databasePath + " " + config.problem);
+        // Into a file that is there: its other settings stay.
+        {
+            QFile ini(configFile);
+            ini.open(QIODevice::WriteOnly | QIODevice::Truncate);
+            ini.write("; ours\r\n[Database]\r\nPath=C:\\old.sqlite\r\nBusyTimeoutSeconds=42\r\n[Backup]\r\nKeep=5\r\n");
+        }
+        said = window.useSharedDatabase(file, false);
+        const QaConfig kept = QaConfigFile::read(configFile);
+        check(said.isEmpty() && db.path() == file && kept.databasePath == file && kept.busyTimeoutSeconds == 42 && kept.backupKeep == 5,
+              "a file that is there keeps what else it says: " + said);
+
+        // ---- the day's copy
+        check(QaBackup::copies(file).isEmpty(), "a window makes no copies unless told how many to keep");
+        window.setBackups(2, QString());
+        const QStringList copies = QaBackup::copies(file);
+        check(copies.size() == 1 && copies.at(0) == folder.filePath("backups/" + QaBackup::fileNameFor(file, QDate::currentDate())), "today's copy is made when the program starts");
+        window.setBackups(2, QString());
+        check(QaBackup::copies(file).size() == 1, "once");
+        check(window.useSharedDatabase(shared, false).isEmpty() && QaBackup::copies(shared).size() == 1, "and of a database that is opened later");
+    }
 }
 
 int main(int argc, char *argv[])
@@ -532,6 +880,8 @@ int main(int argc, char *argv[])
 
     databaseTests();
     configTests();
+    sharedTests();
+    sharedWindowTests();
     scriptTests();
     bundledTests();
     windowTests();

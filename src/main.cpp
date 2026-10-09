@@ -42,6 +42,8 @@
 #include <QMessageBox>
 #include <QSettings>
 #include <QStandardPaths>
+#include "qabackup.h"
+#include "qashare.h"
 #include <QStatusBar>
 #include <QTextStream>
 
@@ -50,7 +52,7 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
     QCoreApplication::setOrganizationName(QStringLiteral("QATest"));
     QCoreApplication::setApplicationName(QStringLiteral("QATest"));
-    QCoreApplication::setApplicationVersion(QStringLiteral("1.0"));
+    QCoreApplication::setApplicationVersion(QStringLiteral("1.1"));
 
     // The icon of every window: the sizes a title bar and a taskbar ask for.
     QIcon icon;
@@ -77,12 +79,22 @@ int main(int argc, char *argv[])
                                                QStringLiteral("Write into the configuration file where the database is, and make it if it is not there."),
                                                QStringLiteral("file"));
     const QCommandLineOption existingOption(QStringLiteral("existing"), QStringLiteral("With --set-database: the database has to be there already."));
+    const QCommandLineOption networkNameOption(QStringLiteral("network-name"),
+                                               QStringLiteral("Print a path on a connected drive under its network name (\\\\server\\share\\...), and exit."),
+                                               QStringLiteral("path"));
     parser.addOptions({ dbOption, importOption, whereOption, configOption, writeConfigOption, writeUserConfigOption, setDatabaseOption, existingOption,
-                        smokeOption });
+                        networkNameOption, smokeOption });
     parser.process(app);
 
     QTextStream out(stdout);
     QTextStream err(stderr);
+
+    if (parser.isSet(networkNameOption))
+    {
+        const QString network = QaShare::networkName(parser.value(networkNameOption));
+        out << QDir::toNativeSeparators(network.isEmpty() ? parser.value(networkNameOption) : network) << Qt::endl;
+        return 0;
+    }
 
     // The configuration file: the one named; else the one beside the program; else the
     // user's own - which is where an installed program has it, since a new version
@@ -112,7 +124,10 @@ int main(int argc, char *argv[])
     if (parser.isSet(setDatabaseOption))
     {
         const QString target = parser.isSet(configOption) ? configFile : users;
-        const QString wanted = QDir::cleanPath(QDir::current().absoluteFilePath(parser.value(setDatabaseOption).trimmed()));
+        // A connected drive is written down as what it is connected to: the same on every PC.
+        const QString typed = QDir::cleanPath(QDir::current().absoluteFilePath(parser.value(setDatabaseOption).trimmed()));
+        const QString network = QaShare::networkName(typed);
+        const QString wanted = network.isEmpty() ? typed : QDir::cleanPath(network);
         if (parser.value(setDatabaseOption).trimmed().isEmpty())
         {
             err << "Say which file the database is: --set-database <file>" << Qt::endl;
@@ -205,15 +220,18 @@ int main(int argc, char *argv[])
     QaDatabase database;
     database.setBusyTimeout(config.busyTimeoutSeconds);
     QString error;
-    if (!database.open(path, error))
+    while (!database.open(path, error))
     {
         // A shared drive that is not there is the usual reason: say whose word the path is.
         error += QStringLiteral("\n\n%1").arg(why);
         err << error << Qt::endl;
         if (parser.isSet(importOption) || parser.isSet(smokeOption))
             return 1;
-        QMessageBox::critical(nullptr, QStringLiteral("QA Test Tracker"), error);
-        return 1;
+        // ... and it may be there in a moment: a drive that is being connected, a NAS that wakes up.
+        QMessageBox box(QMessageBox::Critical, QStringLiteral("QA Test Tracker"), error, QMessageBox::Retry | QMessageBox::Close);
+        box.setInformativeText(QStringLiteral("If the database is on a shared drive, see that the drive is connected, then press Retry."));
+        if (box.exec() != QMessageBox::Retry)
+            return 1;
     }
 
     if (parser.isSet(importOption))
@@ -230,8 +248,23 @@ int main(int argc, char *argv[])
     if (!parser.isSet(smokeOption))
         brought = MainWindow::importBundled(database, QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(QStringLiteral("scripts")));
 
+    // Is the file sound? One on a shared drive is written to over the network by everybody.
+    QString damage;
+    if (!parser.isSet(smokeOption) && !database.sound(damage))
+    {
+        const QStringList copies = QaBackup::copies(path, config.backupFolder);
+        QMessageBox box(QMessageBox::Warning, QStringLiteral("QA Test Tracker"),
+                        QStringLiteral("The database is damaged: %1").arg(QDir::toNativeSeparators(path)), QMessageBox::Ok);
+        box.setInformativeText(QStringLiteral("%1\n\nDo not go on working in it. Close the program on every PC and put a copy from before in its place%2")
+                                   .arg(damage, copies.isEmpty() ? QStringLiteral(" - there is none in %1.").arg(QDir::toNativeSeparators(QaBackup::folderFor(path, config.backupFolder)))
+                                                                 : QStringLiteral(": the newest is\n\n%1").arg(QDir::toNativeSeparators(copies.first()))));
+        box.exec();
+    }
+
     MainWindow window(&database);
     window.setDatabaseSource(why, configFile);
+    if (!parser.isSet(smokeOption))
+        window.setBackups(config.backupKeep, config.backupFolder);
     if (!brought.isEmpty())
         window.statusBar()->showMessage(brought, 15000);
     if (parser.isSet(smokeOption))

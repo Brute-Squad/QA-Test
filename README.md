@@ -12,7 +12,7 @@ It comes with the manual test scripts for **Factory Inventory** (`scripts/Factor
 - **The first start brings the test scripts along.** A database with no project in it reads the scripts that came with the program (`scripts\*.json` beside it): Factory Inventory's 81 test cases are there at once. A database that has a project is never touched this way.
 - **It asks which database to use** (the page *Your Database*, before it installs):
   - **Create a new database** - where you say; at first `qatest.sqlite` in your application data folder (`%APPDATA%\QATest\QATest`). It starts with the test scripts for Factory Inventory. A name that is taken is refused: nothing is ever written over.
-  - **Use a database that is there already** - your own from before, or the one your team shares (`\\server\share\qatest.sqlite`). Nothing in it is changed by installing. This is what the page starts with when your configuration file names a database, or your own is there.
+  - **Use a database that is there already** - your own from before, or the one your team shares (`\\server\share\qatest.sqlite`). Its test cases, runs and results are left as they are (a database from an older version gets what this version needs added to it; the older version goes on working in it). A drive letter of a network drive is written down as the share's own name - `M:\QA-Test\...` as `\\nas1\MyMedia\QA-Test\...` - which is the same on every PC. This is what the page starts with when your configuration file names a database, or your own is there.
 
   Install is there only while the answer makes sense, and the line under the choices says what is wrong. The answer goes into your configuration file, `QATest.ini` in `%APPDATA%\QATest\QATest` (the `Path` line; every other setting is explained there and left as it was). **File > Edit Configuration File...** opens it, and **File > Open Database...** changes your mind later.
 - **A newer version is installed over the old one**: run the new installer; it says that an earlier version is there, removes it and goes in its place - in the folder the old one was in (a version that was installed into `C:\Program Files` stays there, and Windows asks for permission). The database and the configuration file are not in the program's folder, so they stay as they are.
@@ -45,7 +45,7 @@ One SQLite file. Which one the program uses:
 4. else `qatest.sqlite` beside the program, or in a folder `data` beside the program's folder - which is `data\qatest.sqlite` here;
 5. else `qatest.sqlite` in the user's application data folder.
 
-**File > Where Is the Database?** says which it is and why; so does `QATest --where`. To back it up, copy the file while nobody has the program open.
+**File > Where Is the Database?** says which it is and why; so does `QATest --where`. A copy of it is made on every day the program is used (below: *A copy a day*).
 
 ## The configuration file: one database for a team
 
@@ -64,11 +64,39 @@ BusyTimeoutSeconds=10
 - The file is read when the program starts. What it says goes before what was opened last, so everybody with the same line works in the same database; `--db` on the command line still goes before it. `QATest --config <file>` reads another file than the one beside the program.
 - A line the program does not understand is said when it is started from a command line, and the rest of the file still counts.
 
-**To move to a shared drive:** close the program everywhere; copy your `qatest.sqlite` to the share (or let the program make an empty one there: it starts with the scripts that came with it); put the `Path` line into `QATest.ini` on every PC (File > Edit Configuration File...) - or put the whole `dist` folder on the share, with `Path=qatest.sqlite`, and have everybody start it from there. The folder on the share has to exist, and everybody needs the right to change files in it: SQLite keeps a second file beside the database while it writes.
+**To move to a shared drive:** close the program everywhere; copy your `qatest.sqlite` to the share (or let the program make an empty one there: it starts with the scripts that came with it); then choose **File > Use a Shared Database...** on every PC, which writes the `Path` line into `QATest.ini` - or put the whole `dist` folder on the share, with `Path=qatest.sqlite`, and have everybody start it from there. The folder on the share has to exist, and everybody needs the right to change files in it: SQLite keeps a second file beside the database while it writes.
 
 **What to expect of a shared database.** Every result and every change is written at once, so nothing waits in one person's program. The window shows what the others did when it comes back to the front, on **View > Refresh** (F5), and after each thing you store; what you are typing is left alone. While somebody else is writing, the program waits for up to the time set and then says that the database is busy - try again. It is meant for a small team: SQLite on a network drive is dependable when a few people take turns writing, not for dozens at once, and not on a drive that syncs files in the background (OneDrive, Dropbox) - there, each PC ends up with its own copy.
 
 Tables: `projects`, `suites`, `cases`, `steps`, `runs`, `results` (see `src/qadatabase.h`).
+
+## Working in one database with others
+
+Everything here is for a database that several people have open at once - `\\nas1\MyMedia\QA-Test\data\qatest.sqlite`, say.
+
+- **File > Use a Shared Database...** opens a database that is there and writes it into your configuration file, so it is yours from then on; every tester does it once. When the file is chosen on a network drive, the program asks whether to write it down under **the share's own name** (`\\server\share\...`, the same on every PC - the answer in front) or to keep the drive letter, which is this PC's own. The installer's database page and `QATest --set-database` take the share's name by themselves. `QATest --network-name <path>` prints it.
+- **Nobody's work is written over without a word.** A test case counts its changes. If somebody else stored the case while you had it open, Save stores nothing and says who and when; what you typed stays. **Revert** shows their version, **Save Mine Anyway** - there only then - stores yours over theirs. Choosing another case does not lose what could not be saved either: the case stays, with the reason. A case you are not typing in shows what others stored whenever the window comes to the front (View > Refresh, F5, does it at once). Under a case it says who changed it last, and when.
+- **A result says who recorded it**: the name you are logged in to Windows with - or the one you gave as Tester in New Run... the last time - not the name of whoever made the run. File > Where Is the Database? says who you are here.
+- **A share that goes away** - a NAS that sleeps, Wi-Fi that drops - is said in a line at the top of the window. What you see and what you typed stays; the program tries again every few seconds and when you press **Try Again**, and goes on when the database is back. At start, a database that cannot be reached is asked about with **Retry**, not just refused.
+- **An older version in the same database** keeps working: this version adds what it needs (two columns of the test cases) and the older one does not mind. Only the protection above is this version's - an older program still stores over what others stored - so put the same version on every PC.
+
+### A copy a day
+
+The first program that opens the database on a day makes that day's copy: `backups\qatest-2026-10-09.sqlite` in the database's folder, complete in itself, made while others go on working. The newest 14 are kept and older ones deleted; only files called like that are ever touched there. A copy that is there is never written over. **File > Open Backups Folder** shows them.
+
+The database is checked when the program starts. One that is damaged is said at once, with the newest copy to go back to, and is not copied - the good copies are what matters then, and stay.
+
+**To go back to a copy:** close QA Test Tracker on every PC, then put the copy in the database's place under the database's name.
+
+In `QATest.ini`:
+
+```ini
+[Backup]
+; how many daily copies to keep (14; 0 = make none)
+Keep=14
+; another folder than "backups" beside the database - another drive, say
+Folder=D:\QA backups
+```
 
 ## Test scripts as a file
 
@@ -114,14 +142,16 @@ Needs the Qt Installer Framework (`C:\Qt\Tools\QtInstallerFramework`; `-Ifw <its
 
 ## Tests
 
-`build\QATestTests.exe` (run by `build.bat`; exit code 0 = every check passed). It checks the configuration file (network paths, relative paths, what is wrong with a file, two programs on one database), the database (cases, steps, runs, results, what is refused, what a delete takes along, import and export), reads every file in `scripts\` to see that it can be imported and that each case has steps that say what to expect, and drives the program's own window offscreen: the tree, a case edited and saved, a run made and worked through, its report.
+`build\QATestTests.exe` (run by `build.bat`; exit code 0 = every check passed). It checks the configuration file (network paths, relative paths, what is wrong with a file, two programs on one database), the database (cases, steps, runs, results, what is refused, what a delete takes along, import and export), reads every file in `scripts\` to see that it can be imported and that each case has steps that say what to expect, and drives the program's own window offscreen: the tree, a case edited and saved, a run made and worked through, its report. And what a shared database needs: two programs in one file where the second is told that the first stored the case, a database from an older version, the copy of each day and which are kept, a damaged database, a drive letter as the share's name, and the window while the database is away, with somebody else's change, and with File > Use a Shared Database.
 
 ## Layout
 
 | Path | What |
 | --- | --- |
 | `src/qadatabase.*` | The SQLite database: schema, reading and writing, import / export |
-| `src/qaconfig.*` | The configuration file `QATest.ini`: where the database is |
+| `src/qaconfig.*` | The configuration file `QATest.ini`: where the database is, how many copies to keep |
+| `src/qabackup.*` | A copy of the database a day, and which to keep |
+| `src/qashare.*` | A path on a network drive under the share's own name |
 | `src/mainwindow.*` | The window: the tree, the menus |
 | `src/casepanel.*` | The Test Case tab |
 | `src/runpanel.*` | The Test Runs tab |

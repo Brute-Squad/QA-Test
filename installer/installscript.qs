@@ -60,6 +60,22 @@ function configuredDatabase()
     return "";
 }
 
+// A path on a connected drive (M:\QA\qatest.sqlite) under the name of what
+// the drive is connected to (\\server\share\QA\qatest.sqlite); any other
+// path as it is. The share's name is the same on every PC, a letter is not -
+// and a letter is not there at all for the part of an installation that
+// runs with an administrator's rights, which has no connected drives.
+function networkName(path)
+{
+    var drive = /^([A-Za-z]):\\/.exec(path);
+    if (!drive)
+        return path;
+    var said = installer.execute("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
+        "(Get-PSDrive -Name '" + drive[1] + "' -ErrorAction SilentlyContinue).DisplayRoot"]);
+    var share = (said && said.length > 0) ? trimmed(said[0]).replace(/\\+$/, "") : "";
+    return /^\\\\[^\\]+\\[^\\]+/.test(share) ? share + path.substring(2) : path;
+}
+
 function databasePage()
 {
     return gui.pageWidgetByObjectName("DynamicDatabasePage");
@@ -185,6 +201,7 @@ Component.prototype.createOperations = function()
     var database = installer.value("QaDatabase");
     if (!database || database === "")
         database = ownDatabase;
+    database = networkName(database);
     if (installer.value("QaDatabaseExisting") === "true")
         component.addOperation("Execute", "@TargetDir@/QATest.exe", "--config", configFile, "--set-database", database, "--existing");
     else

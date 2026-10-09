@@ -3,6 +3,7 @@
 
 #include "qadatabase.h"
 
+#include <QDate>
 #include <QMainWindow>
 
 #include <functional>
@@ -11,6 +12,8 @@ class CasePanel;
 class QAction;
 class QLabel;
 class QTabWidget;
+class QLabel;
+class QTimer;
 class QTreeWidget;
 class QTreeWidgetItem;
 class RunPanel;
@@ -46,6 +49,21 @@ public:
     // configuration file there is, or could be.
     void setDatabaseSource(const QString &why, const QString &configFile);
 
+    // A copy of the database a day (qabackup.h): how many to keep (0 = none, which is
+    // what a window is made with) and where ("" = beside the database). Makes today's.
+    void setBackups(int keep, const QString &folder);
+
+    // File > Use a Shared Database...: opens that database - one that is there - and
+    // writes it into the configuration file, so that it is the one from now on.
+    // `networkName`: a connected drive (M:) is written as what it is connected to
+    // (\\server\share), which is the same on every PC. "" = done; else why not.
+    QString useSharedDatabase(const QString &path, bool networkName);
+
+    // The database cannot be reached just now (a shared drive that has gone): the
+    // window says so in a line of its own, keeps what it shows, and tries again.
+    bool isLost() const;
+    void retryDatabase();
+
     // For tests: the pieces, and choosing what the tree selects.
     QTreeWidget *tree() const { return m_tree; }
     CasePanel *casePanel() const { return m_case; }
@@ -63,6 +81,10 @@ private:
     enum Kind { ProjectItem = 1, SuiteItem, CaseItem };
 
     void fillTree(Kind selectKind = ProjectItem, qint64 selectId = 0);
+    bool checkDatabase();
+    void dailyBackup();
+    void chooseShared();
+    void showBackups();
     void onSelected();
     void updateActions();
     void updateTitle();
@@ -92,6 +114,15 @@ private:
     bool         m_filling = false;
     QString      m_why;             // why this database
     QString      m_configFile;
+
+    QWidget     *m_lostBar = nullptr;       // shown while the database cannot be reached
+    QLabel      *m_lostText = nullptr;
+    QTimer      *m_retry = nullptr;
+    int          m_backupKeep = 0;
+    QString      m_backupFolder;
+    QString      m_backupOf;                // the database and the day the daily copy was last seen to
+    QDate        m_backupDay;
+    QString      m_backupNote;              // what came of it, for Where Is the Database?
 
     QAction *m_newSuite = nullptr;
     QAction *m_newCase = nullptr;

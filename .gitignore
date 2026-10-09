@@ -7,3 +7,6 @@ build.log
 installer/work/
 installer/out/
 installer/*.log
+
+# Visual Studio's own folder
+.vs/

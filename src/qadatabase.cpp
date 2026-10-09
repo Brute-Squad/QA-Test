@@ -16,6 +16,15 @@ namespace
         return QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
     }
 
+    // A time of the database as somebody reads it: here, today's without the date.
+    QString spoken(const QString &utc)
+    {
+        const QDateTime when = QDateTime::fromString(utc, Qt::ISODate).toLocalTime();
+        if (!when.isValid())
+            return utc;
+        return when.date() == QDate::currentDate() ? when.toString(QStringLiteral("HH:mm")) : when.toString(QStringLiteral("yyyy-MM-dd HH:mm"));
+    }
+
     // A transaction that is rolled back unless it is committed.
     class Transaction
     {
@@ -88,7 +97,86 @@ QString QaImportCounts::text() const
 
 QaDatabase::QaDatabase()
     : m_connection(QStringLiteral("qa-") + QUuid::createUuid().toString(QUuid::WithoutBraces))
+    , m_user(systemUser())
 {
+}
+
+QString QaDatabase::systemUser()
+{
+    const QString name = qEnvironmentVariable("USERNAME");
+    return name.isEmpty() ? qEnvironmentVariable("USER") : name;
+}
+
+bool QaDatabase::reachable(QString &error)
+{
+    if (m_path == QLatin1String(":memory:"))
+        return isOpen();
+    if (m_path.isEmpty())
+    {
+        error = QStringLiteral("No database is open.");
+        return false;
+    }
+    if (!QFileInfo::exists(m_path))
+    {
+        error = QStringLiteral("The database cannot be reached: %1 is not there. If it is on a shared drive, see that the drive is connected.")
+                    .arg(QDir::toNativeSeparators(m_path));
+        return false;
+    }
+    QSqlQuery query;
+    return exec(QStringLiteral("SELECT COUNT(*) FROM projects"), {}, error, &query);
+}
+
+bool QaDatabase::reopen(QString &error)
+{
+    const QString path = m_path;
+    if (path.isEmpty())
+    {
+        error = QStringLiteral("No database is open.");
+        return false;
+    }
+    if (path == QLatin1String(":memory:"))
+        return isOpen();
+    if (!QFileInfo::exists(path))
+    {
+        error = QStringLiteral("The database cannot be reached: %1 is not there. If it is on a shared drive, see that the drive is connected.")
+                    .arg(QDir::toNativeSeparators(path));
+        return false;
+    }
+    const bool opened = open(path, error);
+    // Lost again, or still: it stays the database that is meant.
+    if (!opened)
+        m_path = path;
+    return opened;
+}
+
+bool QaDatabase::sound(QString &problem)
+{
+    problem.clear();
+    QSqlQuery query;
+    if (!exec(QStringLiteral("PRAGMA quick_check"), {}, problem, &query))
+        return false;
+    QStringList found;
+    while (query.next())
+        found << query.value(0).toString();
+    if (found.size() == 1 && found.first().compare(QLatin1String("ok"), Qt::CaseInsensitive) == 0)
+        return true;
+    problem = found.mid(0, 5).join(QStringLiteral("; "));
+    return false;
+}
+
+bool QaDatabase::copyTo(const QString &file, QString &error)
+{
+    if (QFileInfo::exists(file))
+    {
+        error = QStringLiteral("%1 is there already.").arg(QDir::toNativeSeparators(file));
+        return false;
+    }
+    if (!QDir().mkpath(QFileInfo(file).absolutePath()))
+    {
+        error = QStringLiteral("The folder %1 could not be made.").arg(QDir::toNativeSeparators(QFileInfo(file).absolutePath()));
+        return false;
+    }
+    return exec(QStringLiteral("VACUUM INTO '%1'").arg(QDir::toNativeSeparators(file).replace(QLatin1Char('\''), QStringLiteral("''"))), {}, error);
 }
 
 QaDatabase::~QaDatabase()
@@ -179,7 +267,14 @@ bool QaDatabase::exec(const QString &sql, const QVariantList &values, QString &e
     {
         error = used.lastError().text();
         // What a shared file says when it cannot be had, in words for whoever is testing.
-        if (error.contains(QLatin1String("locked"), Qt::CaseInsensitive) || error.contains(QLatin1String("busy"), Qt::CaseInsensitive))
+        if (error.contains(QLatin1String("unable to open"), Qt::CaseInsensitive) || error.contains(QLatin1String("disk I/O"), Qt::CaseInsensitive)
+            || (!m_path.isEmpty() && m_path != QLatin1String(":memory:") && !QFileInfo::exists(m_path)))
+            error = QStringLiteral("The database cannot be reached (%1). If it is on a shared drive, see that the drive is connected. "
+                                   "What you typed is still here: try again when it is back.").arg(QDir::toNativeSeparators(m_path));
+        else if (error.contains(QLatin1String("malformed"), Qt::CaseInsensitive) || error.contains(QLatin1String("not a database"), Qt::CaseInsensitive))
+            error = QStringLiteral("The database is damaged (%1). Close the program everywhere and put the newest copy from its folder \"backups\" in its place.")
+                        .arg(QDir::toNativeSeparators(m_path));
+        else if (error.contains(QLatin1String("locked"), Qt::CaseInsensitive) || error.contains(QLatin1String("busy"), Qt::CaseInsensitive))
             error = QStringLiteral("The database is busy: somebody else is writing to it. Try again in a moment.");
         else if (error.contains(QLatin1String("readonly"), Qt::CaseInsensitive))
             error = QStringLiteral("The database cannot be written: you are not allowed to change files in its folder (%1).")
@@ -219,7 +314,24 @@ bool QaDatabase::createTables(QString &error)
     for (const QString &statement : statements)
         if (!exec(statement, {}, error))
             return false;
-    return true;
+    // What a database from before does not have yet. (An older program goes on working
+    // in the same file: it does not know the columns, and they have their defaults.)
+    return addMissingColumn(QStringLiteral("cases"), QStringLiteral("revision"), QStringLiteral("INTEGER NOT NULL DEFAULT 1"), error)
+        && addMissingColumn(QStringLiteral("cases"), QStringLiteral("changed_by"), QStringLiteral("TEXT NOT NULL DEFAULT ''"), error);
+}
+
+bool QaDatabase::addMissingColumn(const QString &table, const QString &column, const QString &definition, QString &error)
+{
+    QSqlQuery query;
+    if (!exec(QStringLiteral("PRAGMA table_info(%1)").arg(table), {}, error, &query))
+        return false;
+    while (query.next())
+        if (query.value(1).toString().compare(column, Qt::CaseInsensitive) == 0)
+            return true;
+    if (exec(QStringLiteral("ALTER TABLE %1 ADD COLUMN %2 %3").arg(table, column, definition), {}, error))
+        return true;
+    // Two PCs opened the same older database at once, and the other one was first.
+    return error.contains(QLatin1String("duplicate column"), Qt::CaseInsensitive);
 }
 
 // ---- projects ------------------------------------------------------------------------------------
@@ -370,7 +482,8 @@ bool QaDatabase::cases(qint64 suiteId, QList<QaCase> &list, QString &error)
 bool QaDatabase::loadCase(qint64 id, QaCase &testCase, QString &error)
 {
     QSqlQuery query;
-    if (!exec(QStringLiteral("SELECT id, suite_id, key, title, priority, area, preconditions, notes FROM cases WHERE id = ?"), { id }, error, &query))
+    if (!exec(QStringLiteral("SELECT id, suite_id, key, title, priority, area, preconditions, notes, revision, changed_by, updated FROM cases WHERE id = ?"),
+              { id }, error, &query))
         return false;
     if (!query.next())
     {
@@ -386,6 +499,9 @@ bool QaDatabase::loadCase(qint64 id, QaCase &testCase, QString &error)
     testCase.area = query.value(5).toString();
     testCase.preconditions = query.value(6).toString();
     testCase.notes = query.value(7).toString();
+    testCase.revision = query.value(8).toInt();
+    testCase.changedBy = query.value(9).toString();
+    testCase.updated = query.value(10).toString();
 
     if (!exec(QStringLiteral("SELECT action, expected FROM steps WHERE case_id = ? ORDER BY position, id"), { id }, error, &query))
         return false;
@@ -394,8 +510,9 @@ bool QaDatabase::loadCase(qint64 id, QaCase &testCase, QString &error)
     return true;
 }
 
-bool QaDatabase::saveCase(QaCase &testCase, QString &error)
+bool QaDatabase::saveCase(QaCase &testCase, QString &error, bool overwrite)
 {
+    m_conflict = false;
     testCase.key = testCase.key.trimmed();
     testCase.title = testCase.title.trimmed();
     if (testCase.key.isEmpty() || testCase.title.isEmpty())
@@ -418,15 +535,40 @@ bool QaDatabase::saveCase(QaCase &testCase, QString &error)
 
     Transaction transaction(QSqlDatabase::database(m_connection, false));
     const bool isNew = testCase.id == 0;
+    // A change is stored only on what was read: the revision the case had then is the one it
+    // has to have still (0 = whoever stores it did not read it, or says to write over).
+    const int expected = overwrite ? 0 : testCase.revision;
+    const QString when = now();
     const bool stored = isNew
-        ? exec(QStringLiteral("INSERT INTO cases (suite_id, project_id, key, title, priority, area, preconditions, notes, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"),
-               { testCase.suiteId, projectId, testCase.key, testCase.title, testCase.priority, testCase.area, testCase.preconditions, testCase.notes, now() }, error, &query)
-        : exec(QStringLiteral("UPDATE cases SET suite_id = ?, project_id = ?, key = ?, title = ?, priority = ?, area = ?, preconditions = ?, notes = ?, updated = ? WHERE id = ?"),
-               { testCase.suiteId, projectId, testCase.key, testCase.title, testCase.priority, testCase.area, testCase.preconditions, testCase.notes, now(), testCase.id }, error);
+        ? exec(QStringLiteral("INSERT INTO cases (suite_id, project_id, key, title, priority, area, preconditions, notes, updated, revision, changed_by) "
+                              "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)"),
+               { testCase.suiteId, projectId, testCase.key, testCase.title, testCase.priority, testCase.area, testCase.preconditions, testCase.notes, when, m_user },
+               error, &query)
+        : exec(QStringLiteral("UPDATE cases SET suite_id = ?, project_id = ?, key = ?, title = ?, priority = ?, area = ?, preconditions = ?, notes = ?, updated = ?, "
+                              "revision = revision + 1, changed_by = ? WHERE id = ? AND (? = 0 OR revision = ?)"),
+               { testCase.suiteId, projectId, testCase.key, testCase.title, testCase.priority, testCase.area, testCase.preconditions, testCase.notes, when, m_user,
+                 testCase.id, expected, expected }, error, &query);
     if (!stored)
     {
         if (error.contains(QLatin1String("UNIQUE"), Qt::CaseInsensitive))
             error = QStringLiteral("The project has a test case with the key %1 already.").arg(testCase.key);
+        return false;
+    }
+    if (!isNew && query.numRowsAffected() != 1)
+    {
+        // Nothing was stored: the case is gone, or is not the one that was read any more.
+        QSqlQuery there;
+        if (!exec(QStringLiteral("SELECT changed_by, updated FROM cases WHERE id = ?"), { testCase.id }, error, &there))
+            return false;
+        if (!there.next())
+        {
+            error = QStringLiteral("This test case was deleted while you had it open. What you typed is still here: copy it into a new test case to keep it.");
+            return false;
+        }
+        m_conflict = true;
+        const QString who = there.value(0).toString();
+        error = QStringLiteral("%1 changed this test case at %2, while you had it open. Nothing was stored.")
+                    .arg(who.isEmpty() ? QStringLiteral("Somebody else") : who, spoken(there.value(1).toString()));
         return false;
     }
     const qint64 id = isNew ? query.lastInsertId().toLongLong() : testCase.id;
@@ -449,6 +591,11 @@ bool QaDatabase::saveCase(QaCase &testCase, QString &error)
         return false;
     }
     testCase.id = id;
+    testCase.revision = 1;
+    testCase.changedBy = m_user;
+    testCase.updated = when;
+    if (!isNew && exec(QStringLiteral("SELECT revision FROM cases WHERE id = ?"), { id }, error, &query) && query.next())
+        testCase.revision = query.value(0).toInt();
     return true;
 }
 
@@ -748,7 +895,8 @@ bool QaDatabase::importJson(const QJsonObject &scripts, QaImportCounts &counts, 
             // saveCase has a transaction of its own inside this one: SQLite then takes its begin as said
             // already and its commit as ours - so its work is done by hand here.
             const bool stored = known
-                ? exec(QStringLiteral("UPDATE cases SET suite_id = ?, title = ?, priority = ?, area = ?, preconditions = ?, notes = ?, updated = ? WHERE id = ?"),
+                ? exec(QStringLiteral("UPDATE cases SET suite_id = ?, title = ?, priority = ?, area = ?, preconditions = ?, notes = ?, updated = ?, "
+                                    "revision = revision + 1, changed_by = '' WHERE id = ?"),
                        { testCase.suiteId, testCase.title, priorities().contains(testCase.priority) ? testCase.priority : QStringLiteral("Medium"), testCase.area,
                          testCase.preconditions, testCase.notes, now(), testCase.id }, error)
                 : exec(QStringLiteral("INSERT INTO cases (suite_id, project_id, key, title, priority, area, preconditions, notes, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"),

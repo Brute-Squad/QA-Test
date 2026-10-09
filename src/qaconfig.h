@@ -13,6 +13,12 @@
 //   ; How long to wait, in seconds, while somebody else is writing (10).
 //   BusyTimeoutSeconds=10
 //
+//   [Backup]
+//   ; How many daily copies of the database to keep (14; 0 = make none),
+//   ; and where, if not in the folder "backups" beside the database.
+//   Keep=14
+//   Folder=D:\QA backups
+//
 // A plain text file, read as it is written: a backslash is a backslash, so
 // a network path needs no doubling, and a value may stand in quotation
 // marks. Lines that start with ; or # are comments. A path that is not
@@ -26,6 +32,8 @@ struct QaConfig
     QString file;                   // the file that was read ("" = there is none)
     QString databasePath;           // absolute; "" = the file says none
     int     busyTimeoutSeconds = 10;
+    int     backupKeep = 14;        // daily copies to keep (qabackup.h); 0 = make none
+    QString backupFolder;           // absolute; "" = "backups" beside the database
     QString problem;                // what is wrong with the file ("" = nothing)
 };
 

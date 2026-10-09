@@ -66,6 +66,25 @@ QaConfig QaConfigFile::parse(const QString &text, const QString &folder)
         if (value.size() >= 2 && value.startsWith(QLatin1Char('"')) && value.endsWith(QLatin1Char('"')))
             value = value.mid(1, value.size() - 2);
 
+        if (section == QLatin1String("backup"))
+        {
+            if (name == QLatin1String("keep"))
+            {
+                bool isNumber = false;
+                const int copies = value.toInt(&isNumber);
+                if (isNumber && copies >= 0 && copies <= 3650)
+                    config.backupKeep = copies;
+                else
+                    problems << QStringLiteral("Keep is \"%1\": it has to be a number of copies from 0 to 3650").arg(value);
+            }
+            else if (name == QLatin1String("folder"))
+            {
+                const QString path = expanded(value.trimmed());
+                if (!path.isEmpty())
+                    config.backupFolder = isAbsolute(path) ? QDir::cleanPath(path) : QDir::cleanPath(QDir(folder).absoluteFilePath(path));
+            }
+            continue;
+        }
         if (section != QLatin1String("database"))
             continue;       // what this version does not know is left alone
         if (name == QLatin1String("path"))
@@ -178,5 +197,13 @@ QString QaConfigFile::sample()
         "\r\n"
         "; How many seconds to wait while somebody else is writing, before saying that\r\n"
         "; the database is busy. 10 unless said.\r\n"
-        ";BusyTimeoutSeconds=10\r\n");
+        ";BusyTimeoutSeconds=10\r\n"
+        "\r\n"
+        "[Backup]\r\n"
+        "; A copy of the database is made on every day the program is used, into the\r\n"
+        "; folder \"backups\" beside the database, and the oldest copies are deleted.\r\n"
+        "; How many copies to keep (14 unless said; 0 = make none):\r\n"
+        ";Keep=14\r\n"
+        "; Another folder for the copies - on another drive than the database, say:\r\n"
+        ";Folder=\r\n");
 }

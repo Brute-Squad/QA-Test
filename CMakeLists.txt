@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(QATest VERSION 1.0 LANGUAGES CXX)
+project(QATest VERSION 1.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -14,9 +14,17 @@ add_library(QaData STATIC
     src/qaconfig.h
     src/qadatabase.cpp
     src/qadatabase.h
+    src/qabackup.cpp
+    src/qabackup.h
+    src/qashare.cpp
+    src/qashare.h
 )
 target_include_directories(QaData PUBLIC src)
 target_link_libraries(QaData PUBLIC Qt6::Core Qt6::Sql)
+if(WIN32)
+    # What a connected drive is connected to (WNetGetConnection, qashare.cpp).
+    target_link_libraries(QaData PUBLIC mpr)
+endif()
 
 # The program. WIN32: no console window opens with it.
 add_executable(QATest WIN32

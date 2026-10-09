@@ -94,8 +94,17 @@ CasePanel::CasePanel(QaDatabase *database, QWidget *parent)
     m_save = new QPushButton(QStringLiteral("&Save"), this);
     m_save->setObjectName(QStringLiteral("caseSave"));
     m_revert = new QPushButton(QStringLiteral("&Revert"), this);
+    m_revert->setObjectName(QStringLiteral("caseRevert"));
+    // Only when somebody else stored the case meanwhile (save()).
+    m_overwrite = new QPushButton(QStringLiteral("Save &Mine Anyway"), this);
+    m_overwrite->setObjectName(QStringLiteral("caseOverwrite"));
+    m_overwrite->hide();
+    m_changedBy = new QLabel(this);
+    m_changedBy->setObjectName(QStringLiteral("caseChangedBy"));
     auto *buttons = new QHBoxLayout;
+    buttons->addWidget(m_changedBy);
     buttons->addStretch(1);
+    buttons->addWidget(m_overwrite);
     buttons->addWidget(m_revert);
     buttons->addWidget(m_save);
 
@@ -148,7 +157,8 @@ CasePanel::CasePanel(QaDatabase *database, QWidget *parent)
     });
     connect(m_up, &QPushButton::clicked, this, [this]() { moveStep(-1); });
     connect(m_down, &QPushButton::clicked, this, [this]() { moveStep(1); });
-    connect(m_save, &QPushButton::clicked, this, &CasePanel::save);
+    connect(m_save, &QPushButton::clicked, this, [this]() { save(); });
+    connect(m_overwrite, &QPushButton::clicked, this, [this]() { save(true); });
     connect(m_revert, &QPushButton::clicked, this, [this]() {
         if (m_case.id != 0)
             showCase(m_case.id);
@@ -159,10 +169,11 @@ CasePanel::CasePanel(QaDatabase *database, QWidget *parent)
     showCase(0);
 }
 
-void CasePanel::showProblem(const QString &text)
+void CasePanel::showProblem(const QString &text, bool conflict)
 {
     m_problem->setText(text);
     m_problem->setVisible(!text.isEmpty());
+    m_overwrite->setVisible(conflict && !text.isEmpty());
 }
 
 void CasePanel::setChanged(bool changed)
@@ -252,6 +263,10 @@ void CasePanel::fill()
         widget->setEnabled(has);
     showHistory();
     showProblem(QString());
+    // Whose the last change was: the database may be shared.
+    m_changedBy->setText(m_case.id == 0 || m_case.updated.isEmpty() ? QString()
+                         : m_case.changedBy.isEmpty() ? QStringLiteral("Last changed %1").arg(localTime(m_case.updated))
+                                                      : QStringLiteral("Last changed by %1, %2").arg(m_case.changedBy, localTime(m_case.updated)));
     m_filling = false;
     // A new case is something to save as soon as it has a title.
     setChanged(false);
@@ -304,7 +319,7 @@ void CasePanel::collect(QaCase &testCase) const
                                    m_steps->item(row, 1) ? m_steps->item(row, 1)->text() : QString() };
 }
 
-bool CasePanel::save()
+bool CasePanel::save(bool overwrite)
 {
     if (m_case.id == 0 && m_case.suiteId == 0)
         return true;
@@ -314,9 +329,14 @@ bool CasePanel::save()
     QaCase typed;
     collect(typed);
     QString error;
-    if (!m_database->saveCase(typed, error))
+    if (!m_database->saveCase(typed, error, overwrite))
     {
-        showProblem(error);
+        // Somebody else was first: what was typed stays, and it is for the user to say whose counts.
+        const bool conflict = m_database->saveConflicted();
+        showProblem(conflict ? error + QStringLiteral(" Revert shows their version - what you typed is then gone. Save Mine Anyway stores yours over theirs.")
+                             : error, conflict);
+        if (conflict)
+            m_revert->setEnabled(true);
         return false;
     }
     const qint64 id = typed.id;

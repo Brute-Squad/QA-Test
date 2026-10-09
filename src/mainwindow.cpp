@@ -1,7 +1,9 @@
 #include "mainwindow.h"
 
 #include "casepanel.h"
+#include "qabackup.h"
 #include "qaconfig.h"
+#include "qashare.h"
 #include "runpanel.h"
 
 #include <QAction>
@@ -14,6 +16,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
+#include <QHBoxLayout>
 #include <QJsonDocument>
 #include <QLabel>
 #include <QLineEdit>
@@ -25,6 +28,7 @@
 #include <QSplitter>
 #include <QStatusBar>
 #include <QTabWidget>
+#include <QTimer>
 #include <QTreeWidget>
 #include <QUrl>
 #include <QTreeWidgetItemIterator>
@@ -68,7 +72,33 @@ MainWindow::MainWindow(QaDatabase *database, QWidget *parent)
     splitter->addWidget(m_tabs);
     splitter->setStretchFactor(0, 1);
     splitter->setStretchFactor(1, 2);
-    setCentralWidget(splitter);
+
+    // A line above everything, only while the database cannot be reached.
+    m_lostBar = new QWidget(this);
+    m_lostBar->setObjectName(QStringLiteral("lostBar"));
+    m_lostText = new QLabel(m_lostBar);
+    m_lostText->setObjectName(QStringLiteral("lostText"));
+    m_lostText->setWordWrap(true);
+    QFont lostFont = m_lostText->font();
+    lostFont.setBold(true);
+    m_lostText->setFont(lostFont);
+    auto *again = new QPushButton(QStringLiteral("Try &Again"), m_lostBar);
+    again->setObjectName(QStringLiteral("lostRetry"));
+    auto *lostLayout = new QHBoxLayout(m_lostBar);
+    lostLayout->addWidget(m_lostText, 1);
+    lostLayout->addWidget(again);
+    m_lostBar->hide();
+    connect(again, &QPushButton::clicked, this, &MainWindow::retryDatabase);
+    m_retry = new QTimer(this);
+    m_retry->setInterval(15000);
+    connect(m_retry, &QTimer::timeout, this, &MainWindow::retryDatabase);
+
+    auto *central = new QWidget(this);
+    auto *centralLayout = new QVBoxLayout(central);
+    centralLayout->setContentsMargins(0, 0, 0, 0);
+    centralLayout->addWidget(m_lostBar);
+    centralLayout->addWidget(splitter, 1);
+    setCentralWidget(central);
     resize(1280, 800);
     splitter->setSizes({ 420, 860 });
 
@@ -76,7 +106,9 @@ MainWindow::MainWindow(QaDatabase *database, QWidget *parent)
     QMenu *file = menuBar()->addMenu(QStringLiteral("&File"));
     connect(file->addAction(QStringLiteral("&New Database...")), &QAction::triggered, this, &MainWindow::newDatabase);
     connect(file->addAction(QStringLiteral("&Open Database...")), &QAction::triggered, this, &MainWindow::openDatabase);
+    connect(file->addAction(QStringLiteral("Use a &Shared Database...")), &QAction::triggered, this, &MainWindow::chooseShared);
     connect(file->addAction(QStringLiteral("&Where Is the Database?")), &QAction::triggered, this, &MainWindow::whereIsTheDatabase);
+    connect(file->addAction(QStringLiteral("Open &Backups Folder")), &QAction::triggered, this, &MainWindow::showBackups);
     connect(file->addAction(QStringLiteral("Edit &Configuration File...")), &QAction::triggered, this, &MainWindow::editConfiguration);
     file->addSeparator();
     connect(file->addAction(QStringLiteral("&Import Test Scripts...")), &QAction::triggered, this, &MainWindow::importScripts);
@@ -130,17 +162,215 @@ void MainWindow::setDatabaseSource(const QString &why, const QString &configFile
 void MainWindow::changeEvent(QEvent *event)
 {
     QMainWindow::changeEvent(event);
-    if (event->type() == QEvent::ActivationChange && isActiveWindow() && m_database->isOpen() && !m_case->isChanged())
+    if (event->type() != QEvent::ActivationChange || !isActiveWindow())
+        return;
+    if (isLost())
+        retryDatabase();
+    else if (m_database->isOpen() && !m_case->isChanged())
         reload();
+    if (!isLost())
+        dailyBackup();
+}
+
+bool MainWindow::isLost() const
+{
+    return m_lostBar->isVisibleTo(this);
+}
+
+// Can the database be had? If not - a shared drive has gone, a connection dropped -
+// the line at the top says so and it is tried again every few seconds; what the
+// window shows, and what is being typed, stays as it is meanwhile.
+bool MainWindow::checkDatabase()
+{
+    QString error, ignored;
+    if (m_database->reachable(error) || m_database->reopen(ignored))
+    {
+        if (isLost())
+        {
+            m_lostBar->hide();
+            m_retry->stop();
+            statusBar()->showMessage(QStringLiteral("The database is back."), 6000);
+        }
+        return true;
+    }
+    m_lostText->setText(error.remove(QStringLiteral(" What you typed is still here: try again when it is back."))
+                        + QStringLiteral(" What you see and what you typed stays here; it is tried again every few seconds."));
+    m_lostBar->show();
+    m_retry->start();
+    return false;
+}
+
+void MainWindow::retryDatabase()
+{
+    if (!checkDatabase())
+        return;
+    // Back: what is there now - but not over what is being typed.
+    if (!m_case->isChanged())
+        reload();
+    else
+        updateTitle();
+}
+
+void MainWindow::setBackups(int keep, const QString &folder)
+{
+    m_backupKeep = keep;
+    m_backupFolder = folder;
+    m_backupOf.clear();
+    dailyBackup();
+}
+
+// Today's copy of the database, once a day and once per database.
+void MainWindow::dailyBackup()
+{
+    const QDate today = QDate::currentDate();
+    if (m_backupKeep <= 0 || !m_database->isOpen() || (m_backupOf == m_database->path() && m_backupDay == today))
+        return;
+    m_backupOf = m_database->path();
+    m_backupDay = today;
+    const QaBackupOutcome outcome = QaBackup::daily(*m_database, today, m_backupKeep, m_backupFolder);
+    if (!outcome.problem.isEmpty())
+    {
+        m_backupNote = outcome.problem;
+        statusBar()->showMessage(outcome.problem, 20000);
+    }
+    else if (!outcome.file.isEmpty())
+    {
+        m_backupNote = QStringLiteral("Today's copy is %1.").arg(QDir::toNativeSeparators(outcome.file));
+        if (outcome.made)
+            statusBar()->showMessage(QStringLiteral("Today's copy of the database was made: %1").arg(QDir::toNativeSeparators(outcome.file)), 8000);
+    }
+}
+
+void MainWindow::showBackups()
+{
+    const QString folder = QaBackup::folderFor(m_database->path(), m_backupFolder);
+    const QStringList copies = QaBackup::copies(m_database->path(), m_backupFolder);
+    const QString how = QStringLiteral("To go back to a copy: close QA Test Tracker on every PC, then put the copy in the database's place, under the database's name:\n\n%1")
+                            .arg(QDir::toNativeSeparators(m_database->path()));
+    if (m_backupKeep <= 0)
+        say(QStringLiteral("Backups"), QStringLiteral("No copies of the database are made."),
+            QStringLiteral("The configuration file says Keep=0 under [Backup] (File > Edit Configuration File...)."));
+    else if (copies.isEmpty() || !QDesktopServices::openUrl(QUrl::fromLocalFile(folder)))
+        say(QStringLiteral("Backups"), copies.isEmpty() ? QStringLiteral("There is no copy of the database yet.") : QStringLiteral("The folder could not be opened from here."),
+            QStringLiteral("A copy is made on every day the program is used, into\n\n%1\n\n%2%3").arg(QDir::toNativeSeparators(folder), m_backupNote.isEmpty() ? QString() : m_backupNote + QStringLiteral("\n\n"), how));
+    else
+        say(QStringLiteral("Backups"), QStringLiteral("The folder with the copies is open: %1 of them, the newest of %2.")
+                .arg(copies.size()).arg(QFileInfo(copies.first()).completeBaseName().right(10)), how);
+}
+
+// ---- a shared database -----------------------------------------------------------------------------
+
+QString MainWindow::useSharedDatabase(const QString &path, bool networkName)
+{
+    if (m_configFile.isEmpty())
+        return QStringLiteral("The program does not know its configuration file.");
+    // What a connected drive is connected to is the same on every PC; its letter is not.
+    const QString network = networkName ? QaShare::networkName(path) : QString();
+    const QString wanted = QDir::cleanPath(network.isEmpty() ? path : network);
+    if (!QFileInfo::exists(wanted))
+        return QStringLiteral("There is no database %1. If it is on a shared drive, see that the drive is connected.").arg(QDir::toNativeSeparators(wanted));
+    if (m_case->isChanged() && m_case->caseId() != 0 && !m_case->save())
+        return QStringLiteral("The test case that is open could not be saved. Save or revert it first.");
+
+    // The file, with the line for the database - before anything is opened, so that a
+    // file that cannot be written leaves everything as it was.
+    QString text = QaConfigFile::sample();
+    QFile file(m_configFile);
+    if (file.exists())
+    {
+        if (!file.open(QIODevice::ReadOnly))
+            return QStringLiteral("%1 could not be read: %2").arg(QDir::toNativeSeparators(m_configFile), file.errorString());
+        text = QString::fromUtf8(file.readAll());
+        file.close();
+    }
+    const QString before = m_database->path();
+    QString error;
+    if (!m_database->open(wanted, error))
+    {
+        QString ignored;
+        if (!before.isEmpty())
+            m_database->open(before, ignored);
+        reload();
+        return error;
+    }
+    QDir().mkpath(QFileInfo(m_configFile).absolutePath());
+    const QByteArray written = QaConfigFile::withDatabasePath(text, QDir::toNativeSeparators(wanted)).toUtf8();
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate) || file.write(written) != written.size())
+    {
+        const QString why = file.errorString();
+        QString ignored;
+        if (!before.isEmpty())
+            m_database->open(before, ignored);
+        else
+            m_database->close();
+        reload();
+        return QStringLiteral("%1 could not be written: %2. Nothing was changed.").arg(QDir::toNativeSeparators(m_configFile), why);
+    }
+    file.close();
+    // What was opened by hand before does not go first any more: the file says it now.
+    QSettings().remove(QStringLiteral("Database"));
+    m_why = QStringLiteral("The configuration file says so: %1").arg(QDir::toNativeSeparators(m_configFile));
+    m_case->showCase(0);
+    m_tree->clear();
+    reload();
+    dailyBackup();
+    return QString();
+}
+
+void MainWindow::chooseShared()
+{
+    auto *chooser = new QFileDialog(this, QStringLiteral("Use a Shared Database"), QFileInfo(m_database->path()).absolutePath(),
+                                    QStringLiteral("QA databases (*.sqlite);;All files (*)"));
+    chooser->setAttribute(Qt::WA_DeleteOnClose);
+    chooser->setFileMode(QFileDialog::ExistingFile);
+    connect(chooser, &QFileDialog::fileSelected, this, [this](const QString &path) {
+        const auto use = [this](const QString &chosen, bool networkName) {
+            const QString problem = useSharedDatabase(chosen, networkName);
+            if (problem.isEmpty())
+                say(QStringLiteral("Use a Shared Database"), QStringLiteral("This is your database from now on."),
+                    QStringLiteral("%1\n\nIt is written into your configuration file, so the program opens it every time. Everybody who is to work in the same "
+                                   "database does the same on their PC: File > Use a Shared Database...").arg(QDir::toNativeSeparators(m_database->path())));
+            else
+                say(QStringLiteral("Use a Shared Database"), QStringLiteral("The database is not used."), problem);
+        };
+        const QString network = QaShare::networkName(path);
+        if (network.isEmpty())
+        {
+            use(path, false);
+            return;
+        }
+        // A drive letter is this PC's own: ask once, with the better answer in front.
+        auto *box = new QMessageBox(QMessageBox::Question, QStringLiteral("Use a Shared Database"),
+                                    QStringLiteral("%1 is a network drive: on this PC it stands for %2.").arg(path.left(2).toUpper(), QDir::toNativeSeparators(network.left(network.size() - (path.size() - 2)))),
+                                    QMessageBox::NoButton, this);
+        box->setObjectName(QStringLiteral("networkNameBox"));
+        box->setAttribute(Qt::WA_DeleteOnClose);
+        box->setInformativeText(QStringLiteral("Another PC may have that drive under another letter, or not at all. The network name is the same everywhere:\n\n%1\n\n"
+                                               "Write the database down under its network name?").arg(QDir::toNativeSeparators(network)));
+        QPushButton *byName = box->addButton(QStringLiteral("Use the Network Name"), QMessageBox::AcceptRole);
+        QPushButton *byLetter = box->addButton(QStringLiteral("Keep %1").arg(path.left(2).toUpper()), QMessageBox::ActionRole);
+        box->addButton(QMessageBox::Cancel);
+        box->setDefaultButton(byName);
+        connect(box, &QMessageBox::finished, this, [box, byName, byLetter, use, path]() {
+            if (box->clickedButton() == byName)
+                use(path, true);
+            else if (box->clickedButton() == byLetter)
+                use(path, false);
+        });
+        box->open();
+    });
+    chooser->open();
 }
 
 void MainWindow::whereIsTheDatabase()
 {
     QString details = m_why.isEmpty() ? QString() : m_why + QStringLiteral("\n\n");
-    details += QStringLiteral("To put the database on a shared drive, so that several people work in the same one: copy the file there while nobody has it "
-                              "open, and say where it is in the configuration file - a line \"Path=...\" under [Database] - on every PC:\n\n%1\n\n"
-                              "File > Edit Configuration File... opens it. It explains its settings, and is read when the program starts.")
-                   .arg(QDir::toNativeSeparators(m_configFile));
+    details += QStringLiteral("To work in one database with others: copy the file to a shared drive while nobody has it open, then choose "
+                              "File > Use a Shared Database... on every PC. That writes where it is into the configuration file:\n\n%1\n\n"
+                              "You are %2 here: that name is written beside what you change and the results you record.")
+                   .arg(QDir::toNativeSeparators(m_configFile), m_database->user().isEmpty() ? QStringLiteral("(no name)") : m_database->user());
+    if (!m_backupNote.isEmpty())
+        details += QStringLiteral("\n\n") + m_backupNote;
     say(QStringLiteral("Where Is the Database?"), QDir::toNativeSeparators(m_database->path()), details);
 }
 
@@ -202,8 +432,14 @@ void MainWindow::updateTitle()
 
 void MainWindow::reload()
 {
+    // A database that cannot be had just now: what is shown stays.
+    if (!checkDatabase())
+        return;
     const Kind kind = m_tree->currentItem() ? Kind(m_tree->currentItem()->data(0, kKindRole).toInt()) : ProjectItem;
     fillTree(kind, m_tree->currentItem() ? m_tree->currentItem()->data(0, kIdRole).toLongLong() : 0);
+    // The case that is shown, as it is now - somebody else may have changed it.
+    if (!m_case->isChanged() && m_case->caseId() != 0)
+        m_case->showCase(m_case->caseId());
     m_runs->reload();
     updateTitle();
 }
@@ -297,8 +533,20 @@ void MainWindow::onSelected()
     if (caseId != m_case->caseId() || caseId == 0)
     {
         // What was typed into another case is not lost without a word.
-        if (m_case->isChanged() && m_case->caseId() != 0 && m_case->caseId() != caseId)
-            m_case->save();
+        if (m_case->isChanged() && m_case->caseId() != 0 && m_case->caseId() != caseId && !m_case->save())
+        {
+            // It could not be stored - the database is away, or somebody else changed the case:
+            // the case stays, with what was typed and the reason, instead of being lost.
+            if (QTreeWidgetItem *stay = find(CaseItem, m_case->caseId()))
+            {
+                m_filling = true;
+                m_tree->setCurrentItem(stay);
+                m_filling = false;
+                m_tabs->setCurrentWidget(m_case);
+                updateActions();
+                return;
+            }
+        }
         m_case->showCase(caseId);
     }
     if (projectId != m_runs->projectId())
@@ -398,6 +646,7 @@ void MainWindow::openPath(const QString &path)
     m_tree->clear();
     reload();
     statusBar()->showMessage(QStringLiteral("Opened %1").arg(QDir::toNativeSeparators(path)), 6000);
+    dailyBackup();
 }
 
 void MainWindow::newDatabase()

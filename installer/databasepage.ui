@@ -103,7 +103,7 @@
    <item>
     <widget class="QLabel" name="existingHint">
      <property name="text">
-      <string>For example the one your team shares: \\server\share\qatest.sqlite. Nothing in it is changed by installing.</string>
+      <string>For example the one your team shares: \\server\share\qatest.sqlite. A drive letter of a network drive (M:) is written down as the share's own name, which is the same on every PC.</string>
      </property>
      <property name="wordWrap">
       <bool>true</bool>
