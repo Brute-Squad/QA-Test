@@ -47,6 +47,11 @@ CasePanel::CasePanel(QaDatabase *database, QWidget *parent)
     m_area->setEditable(true);
     m_area->addItems({ QString(), QStringLiteral("Desktop"), QStringLiteral("Phone"), QStringLiteral("Desktop and phone"), QStringLiteral("Server"),
                        QStringLiteral("Installer"), QStringLiteral("Web") });
+    // What it is filed under, across the suites: "smoke, phone". The tree filters by a tag, and a run can be of one.
+    m_tags = new QLineEdit(this);
+    m_tags->setObjectName(QStringLiteral("caseTags"));
+    m_tags->setMaxLength(200);
+    m_tags->setPlaceholderText(QStringLiteral("What it is filed under, parted by commas: smoke, phone, license"));
     m_preconditions = new QPlainTextEdit(this);
     m_preconditions->setObjectName(QStringLiteral("casePreconditions"));
     m_preconditions->setPlaceholderText(QStringLiteral("What has to be there before the first step"));
@@ -116,6 +121,7 @@ CasePanel::CasePanel(QaDatabase *database, QWidget *parent)
     line->addWidget(new QLabel(QStringLiteral("Run on:"), this));
     line->addWidget(m_area, 1);
     form->addRow(QStringLiteral("Priority:"), line);
+    form->addRow(QStringLiteral("Tags:"), m_tags);
     form->addRow(QStringLiteral("Preconditions:"), m_preconditions);
 
     auto *layout = new QVBoxLayout(this);
@@ -135,6 +141,7 @@ CasePanel::CasePanel(QaDatabase *database, QWidget *parent)
     };
     connect(m_key, &QLineEdit::textChanged, this, touched);
     connect(m_title, &QLineEdit::textChanged, this, touched);
+    connect(m_tags, &QLineEdit::textChanged, this, touched);
     connect(m_priority, &QComboBox::currentIndexChanged, this, touched);
     connect(m_area, &QComboBox::currentTextChanged, this, touched);
     connect(m_preconditions, &QPlainTextEdit::textChanged, this, touched);
@@ -251,13 +258,14 @@ void CasePanel::fill()
     m_title->setText(m_case.title);
     m_priority->setCurrentIndex(qMax(0, m_priority->findText(m_case.priority.isEmpty() ? QStringLiteral("Medium") : m_case.priority)));
     m_area->setCurrentText(m_case.area);
+    m_tags->setText(m_case.tags);
     m_preconditions->setPlainText(m_case.preconditions);
     m_notes->setPlainText(m_case.notes);
     m_steps->setRowCount(0);
     for (const QaStep &step : std::as_const(m_case.steps))
         addStep(step);
     m_steps->resizeRowsToContents();
-    for (QWidget *widget : { static_cast<QWidget *>(m_key), static_cast<QWidget *>(m_title), static_cast<QWidget *>(m_priority), static_cast<QWidget *>(m_area),
+    for (QWidget *widget : { static_cast<QWidget *>(m_key), static_cast<QWidget *>(m_tags), static_cast<QWidget *>(m_title), static_cast<QWidget *>(m_priority), static_cast<QWidget *>(m_area),
                              static_cast<QWidget *>(m_preconditions), static_cast<QWidget *>(m_steps), static_cast<QWidget *>(m_notes),
                              static_cast<QWidget *>(m_addStep), static_cast<QWidget *>(m_removeStep), static_cast<QWidget *>(m_up), static_cast<QWidget *>(m_down) })
         widget->setEnabled(has);
@@ -311,6 +319,7 @@ void CasePanel::collect(QaCase &testCase) const
     testCase.title = m_title->text().trimmed();
     testCase.priority = m_priority->currentText();
     testCase.area = m_area->currentText().trimmed();
+    testCase.tags = m_tags->text();
     testCase.preconditions = m_preconditions->toPlainText().trimmed();
     testCase.notes = m_notes->toPlainText().trimmed();
     testCase.steps.clear();

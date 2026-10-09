@@ -7,6 +7,7 @@
 #include "runpanel.h"
 
 #include <QAction>
+#include <QComboBox>
 #include <QDesktopServices>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -58,7 +59,48 @@ MainWindow::MainWindow(QaDatabase *database, QWidget *parent)
     m_tree = new QTreeWidget(this);
     m_tree->setObjectName(QStringLiteral("tree"));
     m_tree->setHeaderHidden(true);
-    m_tree->setSelectionMode(QAbstractItemView::SingleSelection);
+    // Several at once - Ctrl, Shift - to move, delete or put into a run together.
+    m_tree->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    m_tree->setContextMenuPolicy(Qt::ActionsContextMenu);
+
+    // ---- finding: words, and what to show
+    m_search = new QLineEdit(this);
+    m_search->setObjectName(QStringLiteral("treeSearch"));
+    m_search->setClearButtonEnabled(true);
+    m_search->setPlaceholderText(QStringLiteral("Find: words of a key, a title, a step, the notes, a tag"));
+    m_resultFilter = new QComboBox(this);
+    m_resultFilter->setObjectName(QStringLiteral("treeResult"));
+    m_resultFilter->addItem(QStringLiteral("Any result"), QString());
+    m_resultFilter->addItem(QStringLiteral("Never run"), QStringLiteral("-"));
+    for (const QString &status : { QaDatabase::passed(), QaDatabase::failed(), QaDatabase::blocked(), QaDatabase::skipped() })
+        m_resultFilter->addItem(QStringLiteral("Last time: %1").arg(status), status);
+    m_priorityFilter = new QComboBox(this);
+    m_priorityFilter->setObjectName(QStringLiteral("treePriority"));
+    m_priorityFilter->addItem(QStringLiteral("Any priority"));
+    m_priorityFilter->addItems(QaDatabase::priorities());
+    m_tagFilter = new QComboBox(this);
+    m_tagFilter->setObjectName(QStringLiteral("treeTag"));
+    m_tagFilter->addItem(QStringLiteral("Any tag"));
+    m_found = new QLabel(this);
+    m_found->setObjectName(QStringLiteral("treeFound"));
+    m_found->hide();
+    auto *filters = new QHBoxLayout;
+    filters->addWidget(m_resultFilter, 1);
+    filters->addWidget(m_priorityFilter, 1);
+    filters->addWidget(m_tagFilter, 1);
+    auto *left = new QWidget(this);
+    auto *leftLayout = new QVBoxLayout(left);
+    leftLayout->setContentsMargins(0, 0, 0, 0);
+    leftLayout->addWidget(m_search);
+    leftLayout->addLayout(filters);
+    leftLayout->addWidget(m_found);
+    leftLayout->addWidget(m_tree, 1);
+    connect(m_search, &QLineEdit::textChanged, this, [this]() { refill(); });
+    for (QComboBox *filter : { m_resultFilter, m_priorityFilter, m_tagFilter })
+        connect(filter, &QComboBox::currentIndexChanged, this, [this]() {
+            if (!m_filling)
+                refill();
+        });
 
     m_case = new CasePanel(m_database, this);
     m_runs = new RunPanel(m_database, this);
@@ -68,7 +110,7 @@ MainWindow::MainWindow(QaDatabase *database, QWidget *parent)
     m_tabs->addTab(m_runs, QStringLiteral("Test Runs"));
 
     auto *splitter = new QSplitter(this);
-    splitter->addWidget(m_tree);
+    splitter->addWidget(left);
     splitter->addWidget(m_tabs);
     splitter->setStretchFactor(0, 1);
     splitter->setStretchFactor(1, 2);
@@ -129,6 +171,17 @@ MainWindow::MainWindow(QaDatabase *database, QWidget *parent)
     edit->addSeparator();
     m_rename = edit->addAction(QStringLiteral("&Rename..."));
     connect(m_rename, &QAction::triggered, this, &MainWindow::renameSelected);
+    m_clone = edit->addAction(QStringLiteral("C&lone"));
+    m_clone->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_D));
+    connect(m_clone, &QAction::triggered, this, [this]() {
+        const QString problem = cloneSelected();
+        if (!problem.isEmpty())
+            say(QStringLiteral("Clone"), QStringLiteral("Nothing was cloned."), problem);
+    });
+    m_move = edit->addAction(QStringLiteral("&Move to Suite..."));
+    connect(m_move, &QAction::triggered, this, &MainWindow::askMove);
+    m_addToRun = edit->addAction(QStringLiteral("&Add to Test Run..."));
+    connect(m_addToRun, &QAction::triggered, this, &MainWindow::askAddToRun);
     m_components = edit->addAction(QStringLiteral("Project &Components..."));
     connect(m_components, &QAction::triggered, this, &MainWindow::editComponents);
     m_delete = edit->addAction(QStringLiteral("&Delete..."));
@@ -139,7 +192,13 @@ MainWindow::MainWindow(QaDatabase *database, QWidget *parent)
     refresh->setShortcut(QKeySequence::Refresh);
     connect(refresh, &QAction::triggered, this, &MainWindow::reload);
 
+    // The same on a right click in the tree.
+    m_tree->addActions({ m_newCase, m_clone, m_move, m_addToRun, m_rename, m_delete });
     connect(m_tree, &QTreeWidget::currentItemChanged, this, [this]() { onSelected(); });
+    connect(m_tree, &QTreeWidget::itemSelectionChanged, this, [this]() {
+        if (!m_filling)
+            updateActions();
+    });
     connect(m_case, &CasePanel::saved, this, [this](qint64 id) {
         fillTree(CaseItem, id);
         statusBar()->showMessage(QStringLiteral("Test case saved"), 4000);
@@ -432,6 +491,13 @@ void MainWindow::updateTitle()
     setWindowTitle(m_database->isOpen() ? QStringLiteral("QA Test Tracker - %1").arg(QDir::toNativeSeparators(m_database->path())) : QStringLiteral("QA Test Tracker"));
 }
 
+// The tree again, with what is selected kept: after a filter changed.
+void MainWindow::refill()
+{
+    const Kind kind = m_tree->currentItem() ? Kind(m_tree->currentItem()->data(0, kKindRole).toInt()) : ProjectItem;
+    fillTree(kind, m_tree->currentItem() ? m_tree->currentItem()->data(0, kIdRole).toLongLong() : 0);
+}
+
 void MainWindow::reload()
 {
     // A database that cannot be had just now: what is shown stays.
@@ -472,9 +538,26 @@ void MainWindow::fillTree(Kind selectKind, qint64 selectId)
             ((*it)->data(0, kKindRole).toInt() == ProjectItem ? openProjects : openSuites) << (*it)->data(0, kIdRole).toLongLong();
     const bool first = m_tree->topLevelItemCount() == 0;
 
+    // What to show: the cases that have the words, went that way the last time, have
+    // that priority and that tag - all of what is asked.
+    const QString words = m_search->text().simplified();
+    const QString result = m_resultFilter->currentData().toString();
+    const QString priority = m_priorityFilter->currentIndex() > 0 ? m_priorityFilter->currentText() : QString();
+    const QString tag = m_tagFilter->currentIndex() > 0 ? m_tagFilter->currentText() : QString();
+    const bool filtering = !words.isEmpty() || !result.isEmpty() || !priority.isEmpty() || !tag.isEmpty();
+    QString error;
+    QSet<qint64> withWords;
+    if (!words.isEmpty())
+    {
+        QList<qint64> ids;
+        m_database->search(0, words, ids, error);
+        withWords = QSet<qint64>(ids.cbegin(), ids.cend());
+    }
+    int found = 0;
+    QStringList allTags;
+
     m_filling = true;
     m_tree->clear();
-    QString error;
     QList<QaProject> projects;
     m_database->projects(projects, error);
     for (const QaProject &project : std::as_const(projects))
@@ -489,27 +572,62 @@ void MainWindow::fillTree(Kind selectKind, qint64 selectId)
 
         QList<QaSuite> suites;
         m_database->suites(project.id, suites, error);
+        for (const QString &known : m_database->tags(project.id))
+            if (!allTags.contains(known, Qt::CaseInsensitive))
+                allTags << known;
         for (const QaSuite &suite : std::as_const(suites))
         {
-            auto *suiteItem = new QTreeWidgetItem(projectItem, { QStringLiteral("%1  (%2)").arg(suite.name).arg(suite.caseCount) });
+            QList<QaCase> cases;
+            m_database->cases(suite.id, cases, error);
+            QList<QaCase> shown;
+            for (const QaCase &testCase : std::as_const(cases))
+            {
+                if ((!words.isEmpty() && !withWords.contains(testCase.id)) || (!priority.isEmpty() && testCase.priority != priority)
+                    || (result == QLatin1String("-") ? !testCase.lastStatus.isEmpty() : (!result.isEmpty() && testCase.lastStatus != result))
+                    || (!tag.isEmpty() && !QaDatabase::tagList(testCase.tags).contains(tag, Qt::CaseInsensitive)))
+                    continue;
+                shown << testCase;
+            }
+            // While something is looked for, a suite that has none of it is not in the way.
+            if (filtering && shown.isEmpty())
+                continue;
+            found += int(shown.size());
+
+            auto *suiteItem = new QTreeWidgetItem(projectItem, { filtering ? QStringLiteral("%1  (%2 of %3)").arg(suite.name).arg(shown.size()).arg(suite.caseCount)
+                                                                           : QStringLiteral("%1  (%2)").arg(suite.name).arg(suite.caseCount) });
             suiteItem->setData(0, kKindRole, SuiteItem);
             suiteItem->setData(0, kIdRole, suite.id);
             suiteItem->setToolTip(0, suite.description);
-
-            QList<QaCase> cases;
-            m_database->cases(suite.id, cases, error);
-            for (const QaCase &testCase : std::as_const(cases))
+            for (const QaCase &testCase : std::as_const(shown))
             {
                 auto *caseItem = new QTreeWidgetItem(suiteItem, { marked(testCase) });
                 caseItem->setData(0, kKindRole, CaseItem);
                 caseItem->setData(0, kIdRole, testCase.id);
-                caseItem->setToolTip(0, testCase.lastStatus.isEmpty() ? QStringLiteral("Not run yet") : QStringLiteral("Last time: %1").arg(testCase.lastStatus));
+                QStringList about { testCase.lastStatus.isEmpty() ? QStringLiteral("Not run yet") : QStringLiteral("Last time: %1").arg(testCase.lastStatus),
+                                    QStringLiteral("Priority: %1").arg(testCase.priority) };
+                if (!testCase.tags.isEmpty())
+                    about << QStringLiteral("Tags: %1").arg(testCase.tags);
+                caseItem->setToolTip(0, about.join(QLatin1Char('\n')));
             }
-            suiteItem->setExpanded(openSuites.contains(suite.id));
+            // What was found is to be seen.
+            suiteItem->setExpanded(filtering || openSuites.contains(suite.id));
         }
         // A project is open the first time, so that its suites are seen.
-        projectItem->setExpanded(first || openProjects.contains(project.id));
+        projectItem->setExpanded(first || filtering || openProjects.contains(project.id));
     }
+    // The tags there are, to choose from - the one that is chosen stays chosen.
+    allTags.sort(Qt::CaseInsensitive);
+    m_tagFilter->clear();
+    m_tagFilter->addItem(QStringLiteral("Any tag"));
+    m_tagFilter->addItems(allTags);
+    if (!tag.isEmpty())
+    {
+        if (m_tagFilter->findText(tag, Qt::MatchFixedString) < 0)
+            m_tagFilter->addItem(tag);
+        m_tagFilter->setCurrentIndex(m_tagFilter->findText(tag, Qt::MatchFixedString));
+    }
+    m_found->setText(found == 1 ? QStringLiteral("1 test case found") : QStringLiteral("%1 test cases found").arg(found));
+    m_found->setVisible(filtering);
     m_filling = false;
 
     QTreeWidgetItem *select = selectId != 0 ? find(selectKind, selectId) : nullptr;
@@ -570,6 +688,10 @@ void MainWindow::updateActions()
     m_rename->setEnabled(project && currentId(CaseItem) == 0);
     m_delete->setEnabled(project);
     m_components->setEnabled(project);
+    const bool cases = !selectedCaseIds().isEmpty();
+    m_move->setEnabled(cases);
+    m_addToRun->setEnabled(cases);
+    m_clone->setEnabled(suite);
     m_export->setEnabled(project);
 }
 
@@ -861,9 +983,273 @@ void MainWindow::editComponents()
     }
 }
 
+// ---- several at once ---------------------------------------------------------------------------------
+
+QList<qint64> MainWindow::selectedIds(Kind kind) const
+{
+    QList<qint64> ids;
+    for (const QTreeWidgetItem *item : m_tree->selectedItems())
+        if (item->data(0, kKindRole).toInt() == kind)
+            ids << item->data(0, kIdRole).toLongLong();
+    return ids;
+}
+
+QList<qint64> MainWindow::selectedCaseIds(bool withSuites) const
+{
+    QList<qint64> ids;
+    for (const QTreeWidgetItem *item : m_tree->selectedItems())
+    {
+        const int kind = item->data(0, kKindRole).toInt();
+        if (kind == CaseItem && !ids.contains(item->data(0, kIdRole).toLongLong()))
+            ids << item->data(0, kIdRole).toLongLong();
+        // A suite stands for its cases - those that are shown, if something is looked for.
+        for (int i = 0; withSuites && kind == SuiteItem && i < item->childCount(); ++i)
+            if (!ids.contains(item->child(i)->data(0, kIdRole).toLongLong()))
+                ids << item->child(i)->data(0, kIdRole).toLongLong();
+    }
+    return ids;
+}
+
+QString MainWindow::moveSelectedTo(qint64 suiteId)
+{
+    const QList<qint64> ids = selectedCaseIds();
+    if (ids.isEmpty())
+        return QStringLiteral("Select the test cases to move.");
+    if (m_case->isChanged() && m_case->caseId() != 0 && !m_case->save())
+        return QStringLiteral("The test case that is open could not be saved. Save or revert it first.");
+    QString error;
+    if (!m_database->moveCases(ids, suiteId, error))
+        return error;
+    fillTree(SuiteItem, suiteId);
+    if (QTreeWidgetItem *suite = find(SuiteItem, suiteId))
+        suite->setExpanded(true);
+    statusBar()->showMessage(ids.size() == 1 ? QStringLiteral("1 test case was moved.") : QStringLiteral("%1 test cases were moved.").arg(ids.size()), 6000);
+    return QString();
+}
+
+QString MainWindow::addSelectedToRun(qint64 runId, int *added)
+{
+    const QList<qint64> ids = selectedCaseIds();
+    if (ids.isEmpty())
+        return QStringLiteral("Select the test cases to add.");
+    int joined = 0;
+    QString error;
+    if (!m_database->addToRun(runId, ids, joined, error))
+        return error;
+    if (added)
+        *added = joined;
+    m_runs->reload();
+    statusBar()->showMessage(joined == 0 ? QStringLiteral("They are in that test run already.")
+                             : joined == ids.size() ? QStringLiteral("%1 added to the test run.").arg(joined == 1 ? QStringLiteral("1 test case was") : QStringLiteral("%1 test cases were").arg(joined))
+                                                    : QStringLiteral("%1 added to the test run; the other %2 in it already.")
+                                                          .arg(joined == 1 ? QStringLiteral("1 test case was") : QStringLiteral("%1 test cases were").arg(joined))
+                                                          .arg(ids.size() - joined == 1 ? QStringLiteral("1 is") : QStringLiteral("%1 are").arg(ids.size() - joined)),
+                             8000);
+    return QString();
+}
+
+QString MainWindow::cloneSelected()
+{
+    QList<qint64> cases = selectedIds(CaseItem);
+    const QList<qint64> suites = selectedIds(SuiteItem);
+    if (cases.isEmpty() && suites.isEmpty())
+        return QStringLiteral("Select a test case or a suite to clone.");
+    if (m_case->isChanged() && m_case->caseId() != 0 && !m_case->save())
+        return QStringLiteral("The test case that is open could not be saved. Save or revert it first.");
+    QString error;
+    Kind kind = ProjectItem;
+    qint64 last = 0;
+    // A case that is selected with its suite comes with the suite.
+    for (const qint64 id : suites)
+    {
+        QaSuite copy;
+        if (!m_database->cloneSuite(id, copy, error))
+            break;
+        kind = SuiteItem;
+        last = copy.id;
+        if (QTreeWidgetItem *suite = find(SuiteItem, id))
+            for (int i = 0; i < suite->childCount(); ++i)
+                cases.removeAll(suite->child(i)->data(0, kIdRole).toLongLong());
+    }
+    for (int i = 0; error.isEmpty() && i < cases.size(); ++i)
+    {
+        QaCase copy;
+        if (!m_database->cloneCase(cases.at(i), copy, error))
+            break;
+        kind = CaseItem;
+        last = copy.id;
+    }
+    fillTree(kind, last);
+    if (last != 0)
+        if (QTreeWidgetItem *item = find(kind, last))
+            m_tree->scrollToItem(item);
+    return error;
+}
+
+QString MainWindow::deleteSelectedNow()
+{
+    QList<qint64> cases = selectedIds(CaseItem);
+    QList<qint64> suites = selectedIds(SuiteItem);
+    const QList<qint64> projects = selectedIds(ProjectItem);
+    if (cases.isEmpty() && suites.isEmpty() && projects.isEmpty())
+        return QStringLiteral("Nothing is selected.");
+    QString error;
+    const bool done = m_database->deleteSeveral(cases, suites, projects, error);
+    // Nothing of what is gone is shown or saved afterwards.
+    m_case->showCase(0);
+    m_tree->clear();
+    reload();
+    return done ? QString() : error;
+}
+
+// Where the selected cases are to go: a suite of their project.
+void MainWindow::askMove()
+{
+    const qint64 projectId = currentId(ProjectItem);
+    const int count = int(selectedCaseIds().size());
+    QList<QaSuite> suites;
+    QString error;
+    m_database->suites(projectId, suites, error);
+    if (count == 0 || suites.isEmpty())
+        return;
+    auto *dialog = new QDialog(this);
+    dialog->setObjectName(QStringLiteral("moveDialog"));
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setWindowTitle(QStringLiteral("Move to Suite"));
+    auto *where = new QComboBox(dialog);
+    where->setObjectName(QStringLiteral("moveTo"));
+    for (const QaSuite &suite : std::as_const(suites))
+        where->addItem(suite.name, suite.id);
+    auto *problem = new QLabel(dialog);
+    problem->setWordWrap(true);
+    problem->hide();
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dialog);
+    buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("Move"));
+    auto *form = new QFormLayout;
+    form->addRow(count == 1 ? QStringLiteral("Move the selected test case to:") : QStringLiteral("Move the %1 selected test cases to:").arg(count), where);
+    auto *layout = new QVBoxLayout(dialog);
+    layout->addLayout(form);
+    layout->addWidget(new QLabel(QStringLiteral("They keep their keys, their steps and their results."), dialog));
+    layout->addWidget(problem);
+    layout->addWidget(buttons);
+    dialog->setMinimumWidth(460);
+    connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
+    connect(buttons, &QDialogButtonBox::accepted, dialog, [this, dialog, where, problem]() {
+        const QString why = moveSelectedTo(where->currentData().toLongLong());
+        if (why.isEmpty())
+        {
+            dialog->accept();
+            return;
+        }
+        problem->setText(why);
+        problem->show();
+    });
+    dialog->open();
+}
+
+// Which run the selected cases are to join: one of the project that is not finished.
+void MainWindow::askAddToRun()
+{
+    const qint64 projectId = currentId(ProjectItem);
+    const int count = int(selectedCaseIds().size());
+    if (count == 0)
+        return;
+    QList<QaRun> runs;
+    QString error;
+    m_database->runs(projectId, runs, error);
+    auto *dialog = new QDialog(this);
+    dialog->setObjectName(QStringLiteral("addToRunDialog"));
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setWindowTitle(QStringLiteral("Add to Test Run"));
+    auto *which = new QComboBox(dialog);
+    which->setObjectName(QStringLiteral("addToRun"));
+    for (const QaRun &run : std::as_const(runs))
+        if (run.finished.isEmpty())
+            which->addItem(run.build.isEmpty() ? run.name : QStringLiteral("%1 (%2)").arg(run.name, run.build), run.id);
+    if (which->count() == 0)
+    {
+        delete dialog;
+        say(QStringLiteral("Add to Test Run"), QStringLiteral("The project has no test run that is open."),
+            QStringLiteral("Start one on the Test Runs tab (New Run...), or reopen one that is finished."));
+        return;
+    }
+    auto *problem = new QLabel(dialog);
+    problem->setWordWrap(true);
+    problem->hide();
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dialog);
+    buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("Add"));
+    auto *form = new QFormLayout;
+    form->addRow(count == 1 ? QStringLiteral("Add the selected test case to:") : QStringLiteral("Add the %1 selected test cases to:").arg(count), which);
+    auto *layout = new QVBoxLayout(dialog);
+    layout->addLayout(form);
+    layout->addWidget(new QLabel(QStringLiteral("Each joins the run as \"Not run\". What is in the run already stays as it is."), dialog));
+    layout->addWidget(problem);
+    layout->addWidget(buttons);
+    dialog->setMinimumWidth(460);
+    connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
+    connect(buttons, &QDialogButtonBox::accepted, dialog, [this, dialog, which, problem]() {
+        const QString why = addSelectedToRun(which->currentData().toLongLong());
+        if (why.isEmpty())
+        {
+            dialog->accept();
+            m_tabs->setCurrentWidget(m_runs);
+            return;
+        }
+        problem->setText(why);
+        problem->show();
+    });
+    dialog->open();
+}
+
 // The selected case, suite or project - after a question that says what goes with it.
 void MainWindow::deleteSelected()
 {
+    // Several: one question for all of them.
+    if (m_tree->selectedItems().size() > 1)
+    {
+        QList<qint64> cases = selectedIds(CaseItem);
+        const QList<qint64> suites = selectedIds(SuiteItem);
+        const QList<qint64> projects = selectedIds(ProjectItem);
+        int inSuites = 0;
+        for (const QTreeWidgetItem *item : m_tree->selectedItems())
+        {
+            if (item->data(0, kKindRole).toInt() != SuiteItem)
+                continue;
+            // All of a suite's cases go with it - also those a filter does not show.
+            QList<QaCase> all;
+            QString ignored;
+            m_database->cases(item->data(0, kIdRole).toLongLong(), all, ignored);
+            inSuites += int(all.size());
+            for (const QaCase &testCase : std::as_const(all))
+                cases.removeAll(testCase.id);
+        }
+        QStringList what;
+        if (!cases.isEmpty())
+            what << (cases.size() == 1 ? QStringLiteral("1 test case") : QStringLiteral("%1 test cases").arg(cases.size()));
+        if (!suites.isEmpty())
+            what << QStringLiteral("%1 with %2").arg(suites.size() == 1 ? QStringLiteral("1 suite") : QStringLiteral("%1 suites").arg(suites.size()),
+                                                     inSuites == 1 ? QStringLiteral("its 1 test case") : QStringLiteral("all %1 of their test cases").arg(inSuites));
+        if (!projects.isEmpty())
+            what << (projects.size() == 1 ? QStringLiteral("1 project with everything in it") : QStringLiteral("%1 projects with everything in them").arg(projects.size()));
+        auto *several = new QMessageBox(QMessageBox::Warning, QStringLiteral("Delete"), QStringLiteral("Delete what is selected: %1?").arg(what.join(QStringLiteral(", "))),
+                                        QMessageBox::Yes | QMessageBox::Cancel, this);
+        several->setObjectName(QStringLiteral("deleteBox"));
+        several->setAttribute(Qt::WA_DeleteOnClose);
+        several->setInformativeText(QStringLiteral("Their steps and their results in every test run go with them%1.\n\nThis cannot be undone.")
+                                        .arg(projects.isEmpty() ? QString() : QStringLiteral(", and a project's test runs")));
+        several->button(QMessageBox::Yes)->setText(QStringLiteral("Delete"));
+        several->setDefaultButton(QMessageBox::Cancel);
+        connect(several, &QMessageBox::finished, this, [this](int answer) {
+            if (answer != QMessageBox::Yes)
+                return;
+            const QString problem = deleteSelectedNow();
+            if (!problem.isEmpty())
+                say(QStringLiteral("Delete"), QStringLiteral("Nothing was deleted."), problem);
+        });
+        several->open();
+        return;
+    }
+
     QTreeWidgetItem *item = m_tree->currentItem();
     if (!item)
         return;

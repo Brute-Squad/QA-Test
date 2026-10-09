@@ -65,6 +65,7 @@ struct QaCase
     QString area;           // where it is run: "Desktop", "Phone", ...
     QString preconditions;
     QString notes;
+    QString tags;           // what it is filed under, parted by commas: "smoke, phone" (QaDatabase::tagList)
     QList<QaStep> steps;    // filled by loadCase(), not by cases()
     QString lastStatus;     // told by cases(): its result in the newest run that has one ("" = never run)
     // The database may be shared: a case counts its changes, and says whose the last was.
@@ -206,6 +207,29 @@ public:
     bool saveCase(QaCase &testCase, QString &error, bool overwrite = false);
     bool saveConflicted() const { return m_conflict; }
     bool deleteCase(qint64 id, QString &error);
+
+    // ---- finding and organising
+    // "Smoke, phone,, SMOKE" -> { "Smoke", "phone" }: each once, whatever the capitals.
+    static QStringList tagList(const QString &tags);
+    // Every tag the project's cases have, each once, by name.
+    QStringList tags(qint64 projectId);
+    // The cases - of that project, or of every one (0) - that have every word
+    // of the text somewhere: in the key, the title, what has to be there
+    // first, the notes, the tags or a step. Capitals do not matter.
+    bool search(qint64 projectId, const QString &text, QList<qint64> &caseIds, QString &error);
+    // Those cases go into that suite - of their own project: a key is a
+    // case's own in its project only. All of them or none.
+    bool moveCases(const QList<qint64> &caseIds, qint64 suiteId, QString &error);
+    // Those cases, suites and projects, with what belongs to them: all or none.
+    bool deleteSeveral(const QList<qint64> &caseIds, const QList<qint64> &suiteIds, const QList<qint64> &projectIds, QString &error);
+    // The case once more, in its suite: the next free key, "<title> (copy)",
+    // its steps and everything that describes it - not how it went.
+    bool cloneCase(qint64 id, QaCase &copy, QString &error);
+    // The suite once more, in its project - "<name> (copy)" - with a clone of each of its cases.
+    bool cloneSuite(qint64 id, QaSuite &copy, QString &error);
+    // Those cases join that run, each "Not run"; what is in it already, or
+    // belongs to another project, is left out. `added` = how many joined.
+    bool addToRun(qint64 runId, const QList<qint64> &caseIds, int &added, QString &error);
     // The next free key of a suite's project that starts as that suite's keys do ("FI-PARTS-004").
     QString nextKey(qint64 suiteId);
     // A case's results, the newest run first.
@@ -214,7 +238,8 @@ public:
     // ---- runs (the newest first)
     bool runs(qint64 projectId, QList<QaRun> &list, QString &error);
     // A run of those suites' cases (none = every suite of the project), each "Not run".
-    bool createRun(QaRun &run, const QList<qint64> &suiteIds, QString &error);
+    // `tag`: only the cases that have that tag ("" = every case of those suites).
+    bool createRun(QaRun &run, const QList<qint64> &suiteIds, QString &error, const QString &tag = QString());
     bool updateRun(const QaRun &run, QString &error);                       // name, build, tester, notes, finished
     bool deleteRun(qint64 id, QString &error);
     // A run of the cases of another run that ended one of those ways there

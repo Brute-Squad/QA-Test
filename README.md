@@ -24,10 +24,10 @@ The installer is not signed, so Windows may warn about an unknown publisher (Mor
 
 Start **QA Test Tracker** from the Start menu - or, from a build, `dist\QATest.exe` (made by `build.bat`, below).
 
-- **On the left:** the projects, their suites and their test cases. A case carries a mark for how it went the last time it was run (✔ passed, ✘ failed, ■ blocked, – skipped).
-- **Test Case** tab: the selected case - key, title, priority, where it is run, preconditions, its steps (what to do / what to expect), notes - and how it went in the runs so far. Change it and press **Save**. **Edit > New Test Case** (Ctrl+N) adds one to the selected suite, with the next free key.
+- **On the left:** the projects, their suites and their test cases. A case carries a mark for how it went the last time it was run (✔ passed, ✘ failed, ■ blocked, – skipped). Above them, what to find (below: *Finding and organising*).
+- **Test Case** tab: the selected case - key, title, priority, where it is run, tags, preconditions, its steps (what to do / what to expect), notes - and how it went in the runs so far. Change it and press **Save**. **Edit > New Test Case** (Ctrl+N) adds one to the selected suite, with the next free key.
 - **Test Runs** tab: the runs of the selected project.
-  - **New Run...** asks for a name, the build that is tested, who tests, and which suites. The run's cases are fixed when it is made. For a project that says what it is made of (below), it asks for **the build of each component** - Server, Desktop app, Phone app: its version and when it was built, as its About says - filled in as the run before said, so only what changed is typed.
+  - **New Run...** asks for a name, the build that is tested, who tests, and which suites - and, under **Only tagged**, whether it is of every case or only of those with one tag: a smoke run. The run's cases are fixed when it is made. For a project that says what it is made of (below), it asks for **the build of each component** - Server, Desktop app, Phone app: its version and when it was built, as its About says - filled in as the run before said, so only what changed is typed.
   - Select a case in the table, work through its steps, then press **Passed**, **Failed**, **Blocked** or **Skipped**. The result is stored at once and the next case that is not run is selected. A failure needs a note saying what happened; the step that failed can be given.
   - **Run Mode** works through the cases that are shown, one at a time and large (below).
   - **Show:** filters by result, and by whose the cases are: **My cases** are those that were assigned to you in this run. Select cases - several with Ctrl or Shift - and **Assign...** says whose they are; the column **For** shows it. "My cases" that are "Not run" is what is left for you to do.
@@ -38,6 +38,22 @@ Start **QA Test Tracker** from the Start menu - or, from a build, `dist\QATest.e
 - **File > Export Project...** writes a project's cases as such a file.
 - **Edit > Delete...** deletes the selected case, suite or project after a question that says what goes with it.
 - **Edit > Project Components...** says what the selected project is made of, parted by commas - `Server, Desktop app, Phone app` - which is what New Run... then asks the builds of. Factory Inventory's scripts say it themselves; none = a run says one build.
+
+### Finding and organising
+
+**Above the list on the left:**
+
+- **Find** - words of a key, a title, a step (what to do or what to expect), what has to be there first, the notes or a tag. A case is found when it has every word somewhere; capitals do not matter. Only the cases that are found are shown, their suites open - "Login (1 of 12)" - and suites without any are out of the way; a line says how many were found.
+- Three boxes show only the cases that **went a certain way the last time** (or never ran), have a **priority**, or have a **tag**. They work together, and with the words.
+
+**Tags** are what a case is filed under across the suites: `smoke, phone, license` - typed on the Test Case tab, parted by commas. A tag can be filtered by, and a run can be of one tag. In a file of test scripts a case has `"tags": ["smoke"]`; a file that says none leaves a case's tags as they are. The scripts for Factory Inventory tag the first case of each suite `smoke`: fifteen cases that touch everything once.
+
+**Several at once** - select with Ctrl or Shift; a selected suite stands for its cases (those that are shown, while something is looked for). On the Edit menu, and with a right click:
+
+- **Move to Suite...** - into another suite of the project. They keep their keys, their steps and their results.
+- **Add to Test Run...** - they join a run that is open, each "Not run"; what is in it already stays as it is.
+- **Delete...** - one question for all of them, saying how many test cases, suites and projects go.
+- **Clone** (Ctrl+D) - a test case once more in its suite: the next free key, "<title> (copy)", its steps, tags and everything that describes it - not how it went, and in no run. A suite is cloned with a clone of each of its cases, as "<name> (copy)".
 
 ### Run Mode
 
@@ -128,7 +144,7 @@ Folder=D:\QA backups
   "suites": [
     { "name": "Parts and stock", "description": "...",
       "cases": [
-        { "key": "FI-PARTS-001", "title": "Add, change and delete a part",
+        { "key": "FI-PARTS-001", "title": "Add, change and delete a part", "tags": ["smoke"],
           "priority": "High", "area": "Desktop and phone",
           "preconditions": "...", "notes": "",
           "steps": [ { "action": "what to do", "expected": "what is to happen" } ] }
@@ -163,7 +179,7 @@ Needs the Qt Installer Framework (`C:\Qt\Tools\QtInstallerFramework`; `-Ifw <its
 
 ## Tests
 
-`build\QATestTests.exe` (run by `build.bat`; exit code 0 = every check passed). It checks the configuration file (network paths, relative paths, what is wrong with a file, two programs on one database), the database (cases, steps, runs, results, what is refused, what a delete takes along, import and export), reads every file in `scripts\` to see that it can be imported and that each case has steps that say what to expect, and drives the program's own window offscreen: the tree, a case edited and saved, a run made and worked through, its report. And getting through a run faster: whose a case is, a run of what failed, the build of each component, files that go with a result and what deleting takes of them, and Run Mode worked through - marked, a note asked for, a file attached, a screenshot pasted, the last case. And what a shared database needs: two programs in one file where the second is told that the first stored the case, a database from an older version, the copy of each day and which are kept, a damaged database, a drive letter as the share's name, and the window while the database is away, with somebody else's change, and with File > Use a Shared Database.
+`build\QATestTests.exe` (run by `build.bat`; exit code 0 = every check passed). It checks the configuration file (network paths, relative paths, what is wrong with a file, two programs on one database), the database (cases, steps, runs, results, what is refused, what a delete takes along, import and export), reads every file in `scripts\` to see that it can be imported and that each case has steps that say what to expect, and drives the program's own window offscreen: the tree, a case edited and saved, a run made and worked through, its report. And finding and organising: words looked for in every part of a case, tags, a run of a tag, several cases moved, put into a run and deleted together, a case and a suite cloned, and the tree's filters. And getting through a run faster: whose a case is, a run of what failed, the build of each component, files that go with a result and what deleting takes of them, and Run Mode worked through - marked, a note asked for, a file attached, a screenshot pasted, the last case. And what a shared database needs: two programs in one file where the second is told that the first stored the case, a database from an older version, the copy of each day and which are kept, a damaged database, a drive letter as the share's name, and the window while the database is away, with somebody else's change, and with File > Use a Shared Database.
 
 ## Layout
 
