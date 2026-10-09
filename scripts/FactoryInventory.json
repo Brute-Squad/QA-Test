@@ -1,6 +1,6 @@
 {
   "project": "Factory Inventory",
-  "version": "2026-10-09",
+  "version": "2026-10-09.2",
   "components": ["Server", "Desktop app", "Phone app"],
   "issueUrl": "https://github.com/Brute-Squad/FactoryInventory/issues/%1",
   "description": "Manual test scripts for Factory Inventory 0.2.0 Beta: the server, the desktop app and the phone app.",
@@ -185,6 +185,36 @@
             {
               "action": "Log in on the phone.",
               "expected": "A dialog says the same once, and the first page keeps the sentence at its top."
+            }
+          ]
+        },
+        {
+          "key": "FI-SETUP-008",
+          "title": "An upgraded server keeps every record",
+          "priority": "High",
+          "area": "Server",
+          "preconditions": "A server of the version before, with data: parts with stock, templates, an assembly, at least one user besides the administrator. Note how many parts, templates and users there are.",
+          "notes": "The upgrade adds tables and columns to the database; nothing may be lost by it.",
+          "steps": [
+            {
+              "action": "Make a backup with Database Backups... and note its file.",
+              "expected": "The backup is listed with today's date."
+            },
+            {
+              "action": "Run the new server installer over the old version and let it finish.",
+              "expected": "It says an earlier version is there, replaces it, and the service is running again."
+            },
+            {
+              "action": "Log in with the desktop app of the new version as the administrator of before.",
+              "expected": "The login works with the old password; About shows the new server version and no notice that server and app differ."
+            },
+            {
+              "action": "Count the parts, templates and users.",
+              "expected": "The same numbers as before the upgrade; a part's stock and its history are as they were."
+            },
+            {
+              "action": "Open Make List..., Product Money... and Currency....",
+              "expected": "Each opens without an error on the old data: empty lists, and a currency that fits the PC's country."
             }
           ]
         }
@@ -799,6 +829,98 @@
             {
               "action": "Reserve all its parts for an assembly, or use them up, and refresh.",
               "expected": "It says \"what is free on the shelf; no more can be made of the parts in stock.\""
+            }
+          ]
+        },
+        {
+          "key": "FI-PSTOCK-006",
+          "title": "The Make List counts what is free, not what is reserved",
+          "priority": "High",
+          "area": "Desktop",
+          "preconditions": "A product with a stock level of 5 and 5 finished ones on the shelf; an open customer order for 2 of it.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open Make List....",
+              "expected": "The product is not on the list as below its level: 5 are there and 5 are free."
+            },
+            {
+              "action": "Reserve the customer order, then refresh the Make List.",
+              "expected": "The product is now below its level: 3 free against a level of 5, 2 to make."
+            },
+            {
+              "action": "Release the order's reservation and refresh.",
+              "expected": "The product is at its level again."
+            }
+          ]
+        },
+        {
+          "key": "FI-PSTOCK-007",
+          "title": "A variant has a stock level of its own",
+          "priority": "Medium",
+          "area": "Desktop",
+          "preconditions": "A product with the variants Colour=Red and Colour=Blue, no stock level on the product; stock of 4 Red and 0 Blue.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Give the variant Blue a stock level of 3 and save.",
+              "expected": "The level is stored with the variant."
+            },
+            {
+              "action": "Open Make List....",
+              "expected": "A line for the product's Blue variant: 0 free, level 3, 3 to make. No line for Red or for the product as a whole."
+            },
+            {
+              "action": "Give the product itself a stock level of 10 and refresh.",
+              "expected": "A second line for the product as a whole: 4 free of all variants against 10."
+            }
+          ]
+        },
+        {
+          "key": "FI-PSTOCK-008",
+          "title": "Make and plan straight from the Make List",
+          "priority": "High",
+          "area": "Desktop",
+          "preconditions": "A product below its stock level, made of two parts; enough of one part in stock for 2 products, of the other for 5. A template that builds into the product's stock.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open Make List... and look at the product's line.",
+              "expected": "It says 2 can be made now, names the part that is in the way of the rest, and names the template that builds it."
+            },
+            {
+              "action": "Make 2 from the list.",
+              "expected": "2 products come into stock at what their parts cost; the parts' stock went down; the line says what is still to make."
+            },
+            {
+              "action": "Plan an assembly for the rest from the list.",
+              "expected": "A planned assembly of that template appears, and the list counts what it will bring."
+            },
+            {
+              "action": "Try to make 1 more than the parts allow.",
+              "expected": "Refused with a sentence that names the part that is short; no stock changed."
+            }
+          ]
+        },
+        {
+          "key": "FI-PSTOCK-009",
+          "title": "The Make List on the phone",
+          "priority": "Medium",
+          "area": "Phone",
+          "preconditions": "The products of FI-PSTOCK-008, and a phone that is logged in.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open Make List on the phone.",
+              "expected": "The same products below their level as on the desktop, those furthest below first."
+            },
+            {
+              "action": "Open a line and make 1.",
+              "expected": "It is made; the line and the product's stock follow, and the desktop shows the same after Refresh."
+            },
+            {
+              "action": "Turn the phone to dark theme and open the list again.",
+              "expected": "Everything is readable: no text in a fixed color on a dark background."
             }
           ]
         }
@@ -1489,6 +1611,102 @@
               "expected": "The tab as a document, to print or save as PDF."
             }
           ]
+        },
+        {
+          "key": "FI-MONEY-005",
+          "title": "Changing the currency converts nothing",
+          "priority": "High",
+          "area": "Desktop",
+          "preconditions": "A part with a unit cost of 12.50 and a product with a retail price of 20.00; the currency is US dollars.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Note the part's cost and the product's price as the lists show them.",
+              "expected": "$12.50 and $20.00."
+            },
+            {
+              "action": "Choose the euro in Currency....",
+              "expected": "The lists show 12.50 € and 20.00 €: the same figures with another sign."
+            },
+            {
+              "action": "Open the part and look at the field of its cost.",
+              "expected": "12.50, as before: no figure was changed in the database."
+            },
+            {
+              "action": "Choose US dollars again.",
+              "expected": "$12.50 and $20.00 again."
+            }
+          ]
+        },
+        {
+          "key": "FI-MONEY-006",
+          "title": "An amount is typed as a plain number",
+          "priority": "Medium",
+          "area": "Desktop and phone",
+          "preconditions": "The currency is the euro.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Edit a part and type 3.75 into its cost; save.",
+              "expected": "It is stored; the list shows 3.75 €."
+            },
+            {
+              "action": "Edit it again and look at the field.",
+              "expected": "The field says 3.75 without a sign, ready to be typed over."
+            },
+            {
+              "action": "Type \"3,75 €\" into the field and save.",
+              "expected": "Refused or corrected with a sentence that says how an amount is written; nothing wrong is stored."
+            },
+            {
+              "action": "Do the same on the phone.",
+              "expected": "The same: lists with the sign, fields plain."
+            }
+          ]
+        },
+        {
+          "key": "FI-MONEY-007",
+          "title": "No currency: plain numbers everywhere",
+          "priority": "Low",
+          "area": "Desktop",
+          "preconditions": "An administrator is logged in; a shipped customer order with an invoice.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Choose \"no currency\" in Currency....",
+              "expected": "Every list shows plain numbers: 12.50."
+            },
+            {
+              "action": "Open the order's Invoice....",
+              "expected": "The amounts on the document are plain numbers too, black on white."
+            },
+            {
+              "action": "Choose the Swiss franc and open the invoice again.",
+              "expected": "CHF 12.50: the code before the amount, on the screen and on the document."
+            }
+          ]
+        },
+        {
+          "key": "FI-MONEY-008",
+          "title": "Only an administrator chooses the currency, and it is written down",
+          "priority": "Medium",
+          "area": "Desktop",
+          "preconditions": "An administrator and a user who is none.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Log in as the user and look for Currency....",
+              "expected": "It is not offered, or says that an administrator has to do it; the currency stays."
+            },
+            {
+              "action": "Log in as the administrator and change the currency.",
+              "expected": "It changes for everybody: the user sees it after logging in again."
+            },
+            {
+              "action": "Open Audit Log....",
+              "expected": "A line says who changed the currency, to what, from which address and when."
+            }
+          ]
         }
       ]
     },
@@ -1604,6 +1822,68 @@
             {
               "action": "Tap Cancel in the bar.",
               "expected": "The bar goes; a tap opens a record again."
+            }
+          ]
+        },
+        {
+          "key": "FI-MULTI-006",
+          "title": "One row that cannot be deleted does not keep the others",
+          "priority": "High",
+          "area": "Desktop",
+          "preconditions": "Three parts; one of them has a lot with reserved stock, so it cannot be deleted.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Select all three and choose Delete Selected....",
+              "expected": "One question names the three and says what each would take with it."
+            },
+            {
+              "action": "Confirm.",
+              "expected": "The two that can be deleted are gone; a message names the one that was not and says why."
+            },
+            {
+              "action": "Look at the part that stayed.",
+              "expected": "It is complete: its stock, its reservation and its history are as before."
+            }
+          ]
+        },
+        {
+          "key": "FI-MULTI-007",
+          "title": "A new batch takes all of the selected assemblies or none",
+          "priority": "High",
+          "area": "Desktop",
+          "preconditions": "Two planned assemblies that fit together, and a third that requires another value of a machine attribute (Nozzle = 0.2 where the others ask 0.4).",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Select all three and choose New Batch of Selected....",
+              "expected": "It is refused with a sentence that names the assembly that does not fit and why."
+            },
+            {
+              "action": "Look at the list of batches and at the three assemblies.",
+              "expected": "No new batch was left behind, and none of the assemblies is in a batch."
+            },
+            {
+              "action": "Select only the two that fit and try again.",
+              "expected": "A batch with the two is made."
+            }
+          ]
+        },
+        {
+          "key": "FI-MULTI-008",
+          "title": "A part the template has already is left and said",
+          "priority": "Medium",
+          "area": "Desktop",
+          "preconditions": "An assembly template that contains part A; parts A, B and C in the list of parts.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Select A, B and C and choose Add Selected to an Assembly Template...; pick the template.",
+              "expected": "B and C are added, one of each; a message says that A was in the template already."
+            },
+            {
+              "action": "Open the template.",
+              "expected": "A is there once, with the quantity it had; B and C with 1."
             }
           ]
         }
@@ -1848,6 +2128,32 @@
             {
               "action": "Press Refresh in the first.",
               "expected": "It shows the second user's description."
+            }
+          ]
+        },
+        {
+          "key": "FI-SRV-007",
+          "title": "A backup folder the server cannot reach is said",
+          "priority": "High",
+          "area": "Desktop",
+          "preconditions": "The server runs as a service. A network drive that is connected for you under a letter (M:), which a service does not see.",
+          "notes": "Found on a live server: backups had failed for days because the folder was on a mapped drive, and nobody had opened the dialog.",
+          "steps": [
+            {
+              "action": "In Database Backups..., name a folder on that drive letter as the folder for backups.",
+              "expected": "It is refused with the reason, or accepted with a warning that the server itself may not reach it."
+            },
+            {
+              "action": "Wait for the next scheduled backup, then open Database Backups....",
+              "expected": "It says that the last backup failed and why (\"the folder ... could not be made\"); the list shows no new backup."
+            },
+            {
+              "action": "Name the same folder by its network name (\\\\server\\share\\folder) and make a backup by hand.",
+              "expected": "The backup is made there and listed, if the service's account may write to the share; else the refusal says so."
+            },
+            {
+              "action": "Look at the server's log.",
+              "expected": "One warning per failed backup, none after the folder was put right."
             }
           ]
         }
