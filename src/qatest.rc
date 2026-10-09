@@ -1,0 +1,3 @@
+// The program's icon in the .exe: what the Explorer, the taskbar and a shortcut show.
+// (Made by icons/makeicon.cpp.)
+IDI_ICON1 ICON "../icons/qatest.ico"

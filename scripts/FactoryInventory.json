@@ -1,0 +1,1934 @@
+{
+  "project": "Factory Inventory",
+  "description": "Manual test scripts for Factory Inventory 0.2.0 Beta: the server, the desktop app and the phone app.",
+  "suites": [
+    {
+      "name": "Installation and setup",
+      "description": "Installing the server and the apps, the first login, connecting an app.",
+      "cases": [
+        {
+          "key": "FI-SETUP-001",
+          "title": "Install the server on a clean PC",
+          "priority": "High",
+          "area": "Installer",
+          "preconditions": "A Windows 11 PC without Factory Inventory. The server installer of the build under test.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Run FactoryInventoryServer-<version>-Setup.exe and follow it to the end.",
+              "expected": "Windows asks for permission once. The installer finishes without an error and offers to open the settings program."
+            },
+            {
+              "action": "Let the last page open the window \"Factory Inventory Server\".",
+              "expected": "The window opens. Step 1 says that the server is running."
+            },
+            {
+              "action": "Look at the firewall line of the window.",
+              "expected": "It says the server can be reached from this network, or offers \"Allow Through the Firewall\" - it never shows an error."
+            },
+            {
+              "action": "Open Services (services.msc) and look for the server's service.",
+              "expected": "The service is there, running, and set to start automatically."
+            }
+          ]
+        },
+        {
+          "key": "FI-SETUP-002",
+          "title": "Make the first login in the settings program",
+          "priority": "High",
+          "area": "Installer",
+          "preconditions": "A freshly installed server on which nobody has made a login.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "In the window \"Factory Inventory Server\", type a user name and a password of four characters, the same twice, and press Create Login.",
+              "expected": "The window says the password is too short; no login is made."
+            },
+            {
+              "action": "Type a longer password, but two different ones, and press Create Login.",
+              "expected": "The window says that the two do not match; no login is made."
+            },
+            {
+              "action": "Type the same good password twice and press Create Login.",
+              "expected": "It says \"Done\" with the user name. The form is replaced by \"Add Another Login\"."
+            },
+            {
+              "action": "Close the window and open it again from the Start menu.",
+              "expected": "It shows that a login exists and does not ask for the first one again."
+            }
+          ]
+        },
+        {
+          "key": "FI-SETUP-003",
+          "title": "Install the desktop app and log in",
+          "priority": "High",
+          "area": "Installer",
+          "preconditions": "A server with a login. The desktop installer of the same build.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Run FactoryInventory-<version>-Setup.exe to the end and start Factory Inventory.",
+              "expected": "The app starts. It finds the server on the same PC or asks for its address under Server > Server Settings."
+            },
+            {
+              "action": "Press Test Connection in Server Settings.",
+              "expected": "It says that the server answers and to log in."
+            },
+            {
+              "action": "Log in with the user made in the settings program.",
+              "expected": "The main window shows the tables in the tree on the left. The status bar says who is logged in."
+            },
+            {
+              "action": "Open Help > About Factory Inventory.",
+              "expected": "It shows the app's build time and the server's version and build time, with no sentence about the server being older."
+            }
+          ]
+        },
+        {
+          "key": "FI-SETUP-004",
+          "title": "Connect a phone with the setup code",
+          "priority": "High",
+          "area": "Phone",
+          "preconditions": "The phone is in the same network as the server. The phone package of the same build is installed.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "On the desktop choose Server > Connect a Phone...",
+              "expected": "A QR code is shown with the server's name, its address(es) and the certificate's fingerprint."
+            },
+            {
+              "action": "On the phone open the menu, Server Settings, and tap Scan Setup Code. Allow the camera and scan the code.",
+              "expected": "Right under the button it says the phone is set up for the server and to tap Save. Address and certificate are filled in."
+            },
+            {
+              "action": "Tap Save and log in.",
+              "expected": "The list of tables is shown. No certificate warning appears."
+            },
+            {
+              "action": "Scan a QR code that is not a setup code (any other product's).",
+              "expected": "The page says that this is no setup code. The address and certificate stay as they were."
+            }
+          ]
+        },
+        {
+          "key": "FI-SETUP-005",
+          "title": "Install over an older version",
+          "priority": "High",
+          "area": "Installer",
+          "preconditions": "A PC with an older version of the server installed and data in it (a few parts, a login).",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Note a part's name and stock in the old version. Run the new server installer.",
+              "expected": "It says that an earlier version is installed and that it replaces it."
+            },
+            {
+              "action": "Press OK and let it finish.",
+              "expected": "It finishes without asking to uninstall first. The settings program says the server is running."
+            },
+            {
+              "action": "Log in from the new desktop app with the old login.",
+              "expected": "The login works; the part and its stock are as noted."
+            },
+            {
+              "action": "Open Help > About.",
+              "expected": "The server's version is the new one."
+            }
+          ]
+        },
+        {
+          "key": "FI-SETUP-006",
+          "title": "Uninstalling keeps the data unless told otherwise",
+          "priority": "Medium",
+          "area": "Installer",
+          "preconditions": "An installed server with data. A copy of nothing is needed: the first run keeps the data.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "In the settings program choose Uninstall the Server...",
+              "expected": "A dialog opens on \"Keep my data (recommended)\" with Uninstall enabled and Cancel as the default."
+            },
+            {
+              "action": "Choose \"Delete my data too\" without ticking the box.",
+              "expected": "Uninstall is disabled until the box \"it cannot be brought back\" is ticked."
+            },
+            {
+              "action": "Go back to \"Keep my data\" and uninstall.",
+              "expected": "The server is removed. The data folder C:\\ProgramData\\FactoryInventory\\Server is still there with the database and backups."
+            },
+            {
+              "action": "Install the server again and log in.",
+              "expected": "The old login and all records are there."
+            }
+          ]
+        },
+        {
+          "key": "FI-SETUP-007",
+          "title": "An app that is newer than the server says so",
+          "priority": "Medium",
+          "area": "Desktop and phone",
+          "preconditions": "A server of an older build than the apps.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Start the desktop app and log in.",
+              "expected": "A box and a line of the log say that the server is older than the app and how to update it. The app goes on working."
+            },
+            {
+              "action": "Open Help > About.",
+              "expected": "The sentence is shown there too, in the error color."
+            },
+            {
+              "action": "Log in on the phone.",
+              "expected": "A dialog says the same once, and the first page keeps the sentence at its top."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Logins, users and rights",
+      "description": "Who may get in and what they may do.",
+      "cases": [
+        {
+          "key": "FI-USERS-001",
+          "title": "A wrong password is refused and slows down",
+          "priority": "High",
+          "area": "Desktop",
+          "preconditions": "The server has a user.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Log in with the right name and a wrong password.",
+              "expected": "The login dialog says the name or password is wrong and stays open."
+            },
+            {
+              "action": "Repeat a wrong password six times in a row.",
+              "expected": "After the fifth the server says to wait before trying again."
+            },
+            {
+              "action": "Wait half a minute and log in with the right password.",
+              "expected": "The login works."
+            }
+          ]
+        },
+        {
+          "key": "FI-USERS-002",
+          "title": "A group's rights limit what a user sees and may do",
+          "priority": "High",
+          "area": "Desktop",
+          "preconditions": "The server is running and you are logged in as an administrator.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open Server > Users and Groups... Add a group \"Viewers\" with only View on Parts.",
+              "expected": "The group is listed."
+            },
+            {
+              "action": "Add a user \"viewer\" in that group, log out, and log in as \"viewer\".",
+              "expected": "The tree shows Parts; the other tables say \"(no access)\"."
+            },
+            {
+              "action": "Select a part and look at Edit, and at Data > Delete Selected.",
+              "expected": "The part cannot be changed or deleted: Edit does nothing or is disabled, Delete is disabled."
+            },
+            {
+              "action": "Log out and back in as the administrator, and delete the user and the group.",
+              "expected": "Both are gone after the question."
+            }
+          ]
+        },
+        {
+          "key": "FI-USERS-003",
+          "title": "The last administrator cannot be removed",
+          "priority": "Medium",
+          "area": "Desktop",
+          "preconditions": "Exactly one administrator exists.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "In Users and Groups select the only administrator and press Delete.",
+              "expected": "It is refused, and the reason - the last administrator - stays shown."
+            },
+            {
+              "action": "Try to take that user out of the Administrators group.",
+              "expected": "Refused in the same way."
+            }
+          ]
+        },
+        {
+          "key": "FI-USERS-004",
+          "title": "Change your own password",
+          "priority": "Medium",
+          "area": "Desktop and phone",
+          "preconditions": "Logged in as any user.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Choose Server > Change Password... and type the old password wrong.",
+              "expected": "It is refused; the password is unchanged."
+            },
+            {
+              "action": "Type the old password right and a new one twice.",
+              "expected": "It says the password was changed."
+            },
+            {
+              "action": "Log out and log in with the new password.",
+              "expected": "The login works; the old password no longer does."
+            }
+          ]
+        },
+        {
+          "key": "FI-USERS-005",
+          "title": "What is done to the server is written into the audit log",
+          "priority": "Medium",
+          "area": "Desktop",
+          "preconditions": "The server is running and you are logged in as an administrator.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Add a user, then change the user's display name.",
+              "expected": "Both are stored."
+            },
+            {
+              "action": "Open Server > Audit Log...",
+              "expected": "The newest lines are \"user changed\" and \"user added\" with who did it, when and from which address."
+            },
+            {
+              "action": "Read the details of the lines.",
+              "expected": "No password, token or key appears anywhere in the log."
+            }
+          ]
+        },
+        {
+          "key": "FI-USERS-006",
+          "title": "An administrator can take over a connection when none is free",
+          "priority": "Medium",
+          "area": "Desktop and phone",
+          "preconditions": "A server on the Free edition (one desktop, one phone). A second PC with the desktop app.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Log in on the first PC as an ordinary user and leave the app open.",
+              "expected": "Logged in."
+            },
+            {
+              "action": "On the second PC log in as another ordinary user.",
+              "expected": "Refused: no connection is free. No offer to disconnect anybody."
+            },
+            {
+              "action": "On the second PC log in as an administrator.",
+              "expected": "The dialog asks whether to disconnect the first user's desktop app, with a button Disconnect and Log In."
+            },
+            {
+              "action": "Press Disconnect and Log In.",
+              "expected": "The administrator is logged in. The first PC is asked to log in again. The audit log has a line for it."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Parts and stock",
+      "description": "Parts, their lots, the history of the stock, counts.",
+      "cases": [
+        {
+          "key": "FI-PARTS-001",
+          "title": "Add, change and delete a part",
+          "priority": "High",
+          "area": "Desktop and phone",
+          "preconditions": "The server is running and you are logged in as an administrator.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Add a part \"QA Bolt\" with part number QA-1 and unit \"each\".",
+              "expected": "It appears in the list and the tree, with today as its date added."
+            },
+            {
+              "action": "Select it, press Edit, change the description and press Save.",
+              "expected": "The form is read-only again and shows the new description."
+            },
+            {
+              "action": "Press Edit, change the name and press Cancel.",
+              "expected": "The stored name is back."
+            },
+            {
+              "action": "Delete the part.",
+              "expected": "A plain question is asked; after Delete the part is gone from the list."
+            }
+          ]
+        },
+        {
+          "key": "FI-PARTS-002",
+          "title": "Stock in lots with four locations",
+          "priority": "High",
+          "area": "Desktop and phone",
+          "preconditions": "A part \"QA Bolt\" exists.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open the part, press Edit, go to the Inventory tab and Add Stock: 100 at Facility \"Plant\", Shelf \"A\", unit cost 0.10.",
+              "expected": "A lot of 100 is listed with value 10.00 in the server's currency."
+            },
+            {
+              "action": "Add a second lot of 50 at Shelf \"B\", unit cost 0.20.",
+              "expected": "Two lots; the totals say 150 on hand and a value of 20.00."
+            },
+            {
+              "action": "Select the first lot and press Use; type 30.",
+              "expected": "The lot shows 70; the total 120."
+            },
+            {
+              "action": "Try to Use 500 from a lot.",
+              "expected": "Refused: not more than is there can be used."
+            }
+          ]
+        },
+        {
+          "key": "FI-PARTS-003",
+          "title": "Every change of a quantity is in the stock history",
+          "priority": "High",
+          "area": "Desktop and phone",
+          "preconditions": "The part of the case before, with its two lots and one use.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "On the Inventory tab press History...",
+              "expected": "Three lines, the newest first: used -30, and two \"added\" lines, each with before and after, location and who."
+            },
+            {
+              "action": "Close it, press Edit and move a lot to another shelf without changing its quantity.",
+              "expected": "The lot shows the new shelf."
+            },
+            {
+              "action": "Open History... again.",
+              "expected": "No new line: only changes of a quantity are movements."
+            }
+          ]
+        },
+        {
+          "key": "FI-PARTS-004",
+          "title": "A whole-unit part takes no fractions; a measured part does",
+          "priority": "Medium",
+          "area": "Desktop",
+          "preconditions": "The server is running and you are logged in as an administrator.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Add a part counted in whole units and try to add stock of 2.5.",
+              "expected": "Refused with a sentence about whole numbers."
+            },
+            {
+              "action": "Add a part \"QA Glue\" with unit \"ml\" and the box for whole units unticked. Add stock of 2.5.",
+              "expected": "Accepted: the lot shows 2.5 ml."
+            }
+          ]
+        },
+        {
+          "key": "FI-PARTS-005",
+          "title": "The names of the four location fields can be changed",
+          "priority": "Low",
+          "area": "Desktop and phone",
+          "preconditions": "The server is running and you are logged in as an administrator.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open Server > Inventory Location Names... and call the third field \"Rack\". Save.",
+              "expected": "It is stored."
+            },
+            {
+              "action": "Open a part's Inventory tab and the dialog that adds stock.",
+              "expected": "The column and the field are called \"Rack\"."
+            },
+            {
+              "action": "Open the same part's stock on the phone.",
+              "expected": "The field is called \"Rack\" there too."
+            },
+            {
+              "action": "Press Use Defaults in the dialog and save.",
+              "expected": "The names are Facility / Room / Shelf / Bin again."
+            }
+          ]
+        },
+        {
+          "key": "FI-PARTS-006",
+          "title": "A stock count puts the books right in one step",
+          "priority": "High",
+          "area": "Desktop and phone",
+          "preconditions": "A part with two lots (say 70 and 50). No lot is reserved.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open Data > Stock Count... and search for the part.",
+              "expected": "Its lots are listed with what the books say and an empty Counted column."
+            },
+            {
+              "action": "Type 68 for the first lot and 50 for the second. Press Post Count...",
+              "expected": "The question says 2 lots were counted and 1 differs."
+            },
+            {
+              "action": "Confirm.",
+              "expected": "The sentence under the list names the difference (70 -> 68). The list reloads with 68."
+            },
+            {
+              "action": "Open the part's stock history.",
+              "expected": "One new line \"adjusted -2\" with the note \"Stock count\"; the lot that was right has none."
+            }
+          ]
+        },
+        {
+          "key": "FI-PARTS-007",
+          "title": "Deleting a part says what goes with it",
+          "priority": "High",
+          "area": "Desktop and phone",
+          "preconditions": "A part with stock that is also in a product.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Select the part and delete it.",
+              "expected": "The question lists what goes along: its stock rows, its history, and that it is taken out of the product."
+            },
+            {
+              "action": "Press Cancel.",
+              "expected": "Nothing is deleted."
+            },
+            {
+              "action": "Delete again and confirm with Delete All of It.",
+              "expected": "The part is gone; the product no longer lists it."
+            }
+          ]
+        },
+        {
+          "key": "FI-PARTS-008",
+          "title": "Search and Show More in a long list",
+          "priority": "Medium",
+          "area": "Desktop and phone",
+          "preconditions": "More than 40 parts exist.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open Parts.",
+              "expected": "The list shows the first 32 and says \"32 of N\"; a Show More button stands under it."
+            },
+            {
+              "action": "Press Show More.",
+              "expected": "As many again are added; the count follows."
+            },
+            {
+              "action": "Type two words that are in one part's name and number into the search box.",
+              "expected": "A moment later only the parts with both words are listed, with \"N found\"."
+            },
+            {
+              "action": "Clear the search.",
+              "expected": "The first page is back."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Products and variants",
+      "description": "Products, what they are made of, their variants, kits, suppliers.",
+      "cases": [
+        {
+          "key": "FI-PROD-001",
+          "title": "A product and its parts",
+          "priority": "High",
+          "area": "Desktop and phone",
+          "preconditions": "Parts \"QA Bolt\" and \"QA Plate\" exist.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Add a product \"QA Bracket\" with a retail price of 12.50.",
+              "expected": "It is listed, with the price shown in the server's currency."
+            },
+            {
+              "action": "Edit it; on the Parts tab add 4 x QA Bolt and 1 x QA Plate.",
+              "expected": "Both are listed with quantity and unit."
+            },
+            {
+              "action": "Try to add QA Bolt a second time.",
+              "expected": "It is not offered any more (or refused): a product has a part once."
+            },
+            {
+              "action": "Open QA Bolt and look at its Used In tab.",
+              "expected": "It lists QA Bracket with a quantity of 4."
+            }
+          ]
+        },
+        {
+          "key": "FI-PROD-002",
+          "title": "A product cannot contain itself",
+          "priority": "Medium",
+          "area": "Desktop",
+          "preconditions": "Products \"QA Kit\" and \"QA Case\" exist.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Put QA Case into QA Kit (the Products tab).",
+              "expected": "Stored."
+            },
+            {
+              "action": "Try to put QA Kit into QA Case.",
+              "expected": "Refused, with the way round by name: \"... would contain itself: ...\". The dialog stays open."
+            }
+          ]
+        },
+        {
+          "key": "FI-PROD-003",
+          "title": "Variants: one product in several colours",
+          "priority": "High",
+          "area": "Desktop and phone",
+          "preconditions": "A product \"QA Hook\".",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Edit it; on the Variants tab add \"Red\" as the attributes.",
+              "expected": "OK stays disabled and the dialog says how an attribute is written (Colour=Red)."
+            },
+            {
+              "action": "Add \"Colour=Red, Size=M\".",
+              "expected": "The variant is listed."
+            },
+            {
+              "action": "Add \"size=m, colour=RED\".",
+              "expected": "Refused: the product has that variant already."
+            },
+            {
+              "action": "Press Add Combinations... and type \"Colour: Red, Blue; Size: S, M\".",
+              "expected": "A box says 3 variants were added and 1 was there already; four variants are listed."
+            }
+          ]
+        },
+        {
+          "key": "FI-PROD-004",
+          "title": "Stock is kept by variant",
+          "priority": "High",
+          "area": "Desktop and phone",
+          "preconditions": "QA Hook with its four variants.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "On its Inventory tab add 5 as \"Colour=Red, Size=M\" and 2 as \"Colour=Blue, Size=M\".",
+              "expected": "Two lots; with \"Show attributes as columns\" ticked there is a Colour and a Size column."
+            },
+            {
+              "action": "Untick \"Show attributes as columns\".",
+              "expected": "One column \"Variant\" instead. The choice is remembered when the app is started again."
+            },
+            {
+              "action": "Look at QA Hook in the Products list.",
+              "expected": "In stock 7, and \"Stock by variant\" says Red M: 5, Blue M: 2."
+            },
+            {
+              "action": "Try to delete the variant Colour=Red, Size=M.",
+              "expected": "Refused: there is stock of it."
+            }
+          ]
+        },
+        {
+          "key": "FI-PROD-005",
+          "title": "Whom a product is bought from",
+          "priority": "Low",
+          "area": "Desktop and phone",
+          "preconditions": "A product and two suppliers exist.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Edit the product; on the Suppliers tab add the first supplier with its number and a price.",
+              "expected": "Listed with phone and e-mail of the supplier."
+            },
+            {
+              "action": "Add the second supplier; then try to add the first again.",
+              "expected": "The second is listed; the first is not offered again."
+            },
+            {
+              "action": "Take the first supplier off the product.",
+              "expected": "The question says the supplier itself stays. It is still in the Suppliers table."
+            }
+          ]
+        },
+        {
+          "key": "FI-PROD-006",
+          "title": "The Free edition holds 25 products",
+          "priority": "Medium",
+          "area": "Desktop",
+          "preconditions": "A server without a license, with fewer than 25 products.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open Help > About.",
+              "expected": "Edition: Free; \"At most 25 products\"."
+            },
+            {
+              "action": "Add products until there are 25.",
+              "expected": "All are accepted. Variants do not count."
+            },
+            {
+              "action": "Add a twenty-sixth.",
+              "expected": "Refused with a sentence naming the limit of the Free edition."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "The stock of products",
+      "description": "Finished products on the shelf: making, taking apart, promoting parts, stock levels.",
+      "cases": [
+        {
+          "key": "FI-PSTOCK-001",
+          "title": "Make products of their parts",
+          "priority": "High",
+          "area": "Desktop and phone",
+          "preconditions": "QA Bracket = 4 bolts + 1 plate; 40 bolts at 0.10 and 3 plates at 1.00 in stock.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "On QA Bracket's Inventory tab press Make...",
+              "expected": "The dialog says what one takes of each part and that up to 3 can be made."
+            },
+            {
+              "action": "Type 4.",
+              "expected": "The plate line says \"not enough\"; there is no Make to press."
+            },
+            {
+              "action": "Type 2, give a location and press Make.",
+              "expected": "A lot of 2 appears at the cost of the parts (1.40 each). 8 bolts and 2 plates have left their stock."
+            },
+            {
+              "action": "Open the bolts' stock history.",
+              "expected": "A line \"used -8\" with the note \"Made into 2 x QA Bracket\"."
+            }
+          ]
+        },
+        {
+          "key": "FI-PSTOCK-002",
+          "title": "Take apart what was made",
+          "priority": "Medium",
+          "area": "Desktop and phone",
+          "preconditions": "The lot of 2 brackets made in the case before, not reserved.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Select the lot and press Take Apart...",
+              "expected": "The dialog says 2 can be taken apart."
+            },
+            {
+              "action": "Type 3.",
+              "expected": "Refused: there are only 2 in this lot."
+            },
+            {
+              "action": "Type 1 and confirm.",
+              "expected": "The sentence under the list says which parts went back (4 bolts, 1 plate). The lot shows 1."
+            },
+            {
+              "action": "Select a lot that was typed in with Add Stock.",
+              "expected": "Take Apart... is disabled, and its tool tip says why."
+            }
+          ]
+        },
+        {
+          "key": "FI-PSTOCK-003",
+          "title": "Make a part a product",
+          "priority": "Medium",
+          "area": "Desktop and phone",
+          "preconditions": "A counted part \"QA Pin\" with 10 free in stock.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "On the part's Inventory tab press Make It a Product...",
+              "expected": "A dialog explains it; \"Move the stock that is free\" is ticked."
+            },
+            {
+              "action": "Confirm.",
+              "expected": "The browser shows a new product \"QA Pin\" made of one QA Pin, with 10 in stock. The part's free stock is 0."
+            },
+            {
+              "action": "Choose Data > Make Products of Parts... and filter for a part that is already a product.",
+              "expected": "It is not among the candidates."
+            }
+          ]
+        },
+        {
+          "key": "FI-PSTOCK-004",
+          "title": "A product's stock level puts it on the Make List",
+          "priority": "High",
+          "area": "Desktop and phone",
+          "preconditions": "QA Bracket with 1 free on the shelf and parts for 1 more.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Edit QA Bracket and type \"lots\" as its Stock level.",
+              "expected": "Save stays disabled."
+            },
+            {
+              "action": "Type 4 and save. Open Data > Make List...",
+              "expected": "QA Bracket is listed: free 1, level 4, below by 3, to make 3, can make now 1, and the part it is short of."
+            },
+            {
+              "action": "Select it and press Make...; accept the quantity filled in.",
+              "expected": "It makes 1. The list reloads: free 2, to make 2, can make now 0."
+            },
+            {
+              "action": "Tick \"Also the products there are enough of\".",
+              "expected": "Products at or above their level are listed too."
+            }
+          ]
+        },
+        {
+          "key": "FI-PSTOCK-005",
+          "title": "The Inventory tab says what is available to sell",
+          "priority": "Low",
+          "area": "Desktop and phone",
+          "preconditions": "A product with free stock and parts for more.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open the product's Inventory tab.",
+              "expected": "Under the summary: \"Available to sell: N - x free on the shelf, and y more can be made of the parts in stock.\""
+            },
+            {
+              "action": "Reserve all its parts for an assembly, or use them up, and refresh.",
+              "expected": "It says \"what is free on the shelf; no more can be made of the parts in stock.\""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Assemblies and batches",
+      "description": "Templates, reserving and building, substitutes, batches.",
+      "cases": [
+        {
+          "key": "FI-ASM-001",
+          "title": "An assembly template and what a build costs",
+          "priority": "High",
+          "area": "Desktop and phone",
+          "preconditions": "Parts \"QA Frame\" (to make), \"QA Bolt\" (stock at 0.10) and \"QA Plate\" (stock at 1.00).",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Add an assembly template \"QA Frame recipe\" that makes QA Frame.",
+              "expected": "Stored; Makes cannot be changed afterwards."
+            },
+            {
+              "action": "On its Parts tab add 6 bolts and 2 plates.",
+              "expected": "Listed."
+            },
+            {
+              "action": "Open the Cost tab.",
+              "expected": "\"Cost of one: 2.60\", with the note that it is estimated from the average cost of the stock."
+            },
+            {
+              "action": "Try to put QA Frame itself into the template.",
+              "expected": "Refused: a part cannot be made from itself."
+            }
+          ]
+        },
+        {
+          "key": "FI-ASM-002",
+          "title": "Reserve, release and build an assembly",
+          "priority": "High",
+          "area": "Desktop and phone",
+          "preconditions": "The template above; stock for at least 2 frames.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Add an assembly \"QA Frames\" of that template, quantity 2. Open its Build tab.",
+              "expected": "Status Planned; the parts needed are 12 bolts and 4 plates."
+            },
+            {
+              "action": "Press Reserve Parts.",
+              "expected": "Status Reserved. The parts' lots show the amounts as reserved."
+            },
+            {
+              "action": "Press Release, then Reserve Parts again, then Build... and give a location.",
+              "expected": "It warns that a build cannot be undone. Afterwards: status Built, a new lot of 2 frames at 2.60 each."
+            },
+            {
+              "action": "Open the bolts' stock history.",
+              "expected": "A line \"used -12\" with the note \"Assembly QA Frames\"."
+            }
+          ]
+        },
+        {
+          "key": "FI-ASM-003",
+          "title": "Reserving is all or nothing",
+          "priority": "High",
+          "area": "Desktop and phone",
+          "preconditions": "An assembly that needs more of one part than is free.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Press Reserve Parts.",
+              "expected": "Refused: \"Not everything is in stock, so nothing was reserved.\" with the part, what is needed and what is free."
+            },
+            {
+              "action": "Look at the lots of the other parts.",
+              "expected": "Nothing of them is reserved."
+            }
+          ]
+        },
+        {
+          "key": "FI-ASM-004",
+          "title": "Use a substitute part",
+          "priority": "Medium",
+          "area": "Desktop and phone",
+          "preconditions": "A template with a part \"Bolt, stainless\" and a substitute \"Bolt, zinc\" on its Substitutes tab; a planned assembly of it.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "On the assembly's Build tab select the line of the stainless bolt and press Substitute...",
+              "expected": "The dialog says how much is needed and lists the zinc bolt with what is free."
+            },
+            {
+              "action": "Press Use It.",
+              "expected": "The line reads \"Bolt, zinc (instead of Bolt, stainless)\"."
+            },
+            {
+              "action": "Reserve the parts.",
+              "expected": "The zinc bolts are reserved. Substitute... is now disabled."
+            }
+          ]
+        },
+        {
+          "key": "FI-ASM-005",
+          "title": "A batch reserves and builds several assemblies as one",
+          "priority": "High",
+          "area": "Desktop and phone",
+          "preconditions": "Three planned assemblies; stock for all three.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Add a batch \"QA Run\". Open its Run tab and press Add Assemblies...; filter \"QA*\" and add the three.",
+              "expected": "The dialog closes and the Run tab lists the three with what they need together."
+            },
+            {
+              "action": "Press Reserve All.",
+              "expected": "All three are reserved; the batch says Reserved."
+            },
+            {
+              "action": "Press Build All... and give a location.",
+              "expected": "All three are built at the same moment into that place."
+            }
+          ]
+        },
+        {
+          "key": "FI-ASM-006",
+          "title": "A batch that is short reserves nothing",
+          "priority": "Medium",
+          "area": "Desktop and phone",
+          "preconditions": "A batch of two assemblies; stock for the first only.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Press Reserve All.",
+              "expected": "Refused, naming the assembly that is short: \"... Nothing was reserved for the batch.\""
+            },
+            {
+              "action": "Open the first assembly.",
+              "expected": "It is still Planned: it kept nothing."
+            }
+          ]
+        },
+        {
+          "key": "FI-ASM-007",
+          "title": "Clone a template and an assembly",
+          "priority": "Low",
+          "area": "Desktop and phone",
+          "preconditions": "A template with parts; an assembly that is reserved.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Select the template and choose Data > Clone Selected.",
+              "expected": "A template \"... (copy)\" is selected, with the same parts."
+            },
+            {
+              "action": "Clone the reserved assembly.",
+              "expected": "The clone is Planned, in no batch, with nothing reserved."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Machines and scheduling",
+      "description": "Machines, their status, what a job asks of them, machine time, the schedule.",
+      "cases": [
+        {
+          "key": "FI-MACH-001",
+          "title": "Take a machine offline and bring it back",
+          "priority": "High",
+          "area": "Desktop and phone",
+          "preconditions": "A machine \"QA Printer\".",
+          "notes": "",
+          "steps": [
+            {
+              "action": "On its Status tab press Set Offline... and leave the reason empty.",
+              "expected": "OK is disabled: a reason is needed."
+            },
+            {
+              "action": "Type a reason and confirm.",
+              "expected": "It says the machine is offline; the history has a line with the reason, who and when."
+            },
+            {
+              "action": "Press Set Online...",
+              "expected": "A reason is optional. The machine is online and the history has two lines."
+            }
+          ]
+        },
+        {
+          "key": "FI-MACH-002",
+          "title": "Only a machine that fits can run a job",
+          "priority": "High",
+          "area": "Desktop and phone",
+          "preconditions": "Two machines with the attribute Nozzle: 0.4 and 0.6. A planned assembly.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "On the assembly's Required Attributes tab add Nozzle = 0.4.",
+              "expected": "Stored; the dialog offered the name and its values to pick."
+            },
+            {
+              "action": "On the Machines tab press Add Machine...",
+              "expected": "Only the 0.4 machine is offered, and a line says so."
+            },
+            {
+              "action": "With the 0.4 machine put down, try to change the requirement to 0.6.",
+              "expected": "Refused: the machine put down has Nozzle = 0.4."
+            }
+          ]
+        },
+        {
+          "key": "FI-MACH-003",
+          "title": "Machine time is part of what a job cost",
+          "priority": "Medium",
+          "area": "Desktop and phone",
+          "preconditions": "A machine with an hourly rate of 10.00, put down for an assembly.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Edit the machine entry: setup 0.5, run 2, teardown 0.5.",
+              "expected": "The list shows 3 hours and a cost of 30.00."
+            },
+            {
+              "action": "Open the assembly's Build tab.",
+              "expected": "The total says \"including 30.00 of machine time\"."
+            },
+            {
+              "action": "Open Data > Machine Time... for this year.",
+              "expected": "The machine is listed with its hours and cost."
+            }
+          ]
+        },
+        {
+          "key": "FI-MACH-004",
+          "title": "Schedule two jobs on one machine",
+          "priority": "High",
+          "area": "Desktop and phone",
+          "preconditions": "Two assemblies, each with the same machine put down for 4 hours.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "On the first assembly's Schedule tab choose the machine, set tomorrow 09:00 and press Schedule.",
+              "expected": "\"Scheduled on ... from 09:00 to 13:00 (4 h).\""
+            },
+            {
+              "action": "Schedule the second on the same machine at 10:00.",
+              "expected": "Refused: the machine is busy then, with the job and its times."
+            },
+            {
+              "action": "Press Next Free Time for the second and schedule it.",
+              "expected": "It is scheduled from 13:00."
+            },
+            {
+              "action": "Open Data > Machine Schedule...",
+              "expected": "Both jobs are listed by start under the machine."
+            }
+          ]
+        },
+        {
+          "key": "FI-MACH-005",
+          "title": "The machine options of a template",
+          "priority": "Medium",
+          "area": "Desktop",
+          "preconditions": "A template with a machine model on its Machine Models tab (times filled in) and a machine of that model with a rate.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "On the template's Cost tab press Machine Options...",
+              "expected": "A row for the model with hours, machine time, parts, total and per piece; the cheapest is selected."
+            },
+            {
+              "action": "Set \"Pieces in one run\" to 5.",
+              "expected": "Setup and teardown count once, the run time five times; the total and per piece follow."
+            },
+            {
+              "action": "Press Plan Assembly... and accept the name.",
+              "expected": "An assembly for 5 is planned with the model's machine put down at the template's times."
+            }
+          ]
+        },
+        {
+          "key": "FI-MACH-006",
+          "title": "Import a sliced file",
+          "priority": "Medium",
+          "area": "Desktop",
+          "preconditions": "A sliced export (.gcode.3mf) of two plates, or a single plate's .gcode. A machine of the printer's model.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Choose File > Import Sliced File... and pick the file.",
+              "expected": "The dialog shows the project, the printer model chosen, the filaments with their grams and one row per plate with its hours."
+            },
+            {
+              "action": "Press Import.",
+              "expected": "A template per plate is made, each making a part of its own, with the filament as a part in grams and the print time as the run time."
+            },
+            {
+              "action": "Open a project file that was only saved, not sliced.",
+              "expected": "It says the file was not sliced and to export the sliced file."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Customer orders",
+      "description": "Orders, reserving, shipping in full and in part, invoices, shortages.",
+      "cases": [
+        {
+          "key": "FI-ORD-001",
+          "title": "An order with lines and a total",
+          "priority": "High",
+          "area": "Desktop and phone",
+          "preconditions": "A customer and a product with a retail price of 12.50.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Add a customer order for the customer. Edit it; on the Lines tab add 3 of the product.",
+              "expected": "The unit price starts as 12.50; the line total is 37.50."
+            },
+            {
+              "action": "Open the Stock tab.",
+              "expected": "It lists what the order needs against what is free, and the order total 37.50."
+            },
+            {
+              "action": "Add the same product a second time.",
+              "expected": "Refused: an order has a product once (per variant)."
+            }
+          ]
+        },
+        {
+          "key": "FI-ORD-002",
+          "title": "Reserve and ship an order",
+          "priority": "High",
+          "area": "Desktop and phone",
+          "preconditions": "An open order whose stock is all there.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Press Reserve Stock.",
+              "expected": "Status Reserved; the lots show the amounts reserved for the order."
+            },
+            {
+              "action": "Try to change a line.",
+              "expected": "Refused: the order's stock is reserved."
+            },
+            {
+              "action": "Press Ship... and accept all that is left.",
+              "expected": "It warns that shipping cannot be undone. Status Shipped, with the date. The stock has left."
+            }
+          ]
+        },
+        {
+          "key": "FI-ORD-003",
+          "title": "Ship an order in parts",
+          "priority": "High",
+          "area": "Desktop and phone",
+          "preconditions": "An order with a line of 4 and stock for all.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Press Ship... and type 1 for the line.",
+              "expected": "The heading says the order is partly shipped; the Lines tab shows Shipped 1."
+            },
+            {
+              "action": "Press Ship... and type 5.",
+              "expected": "Refused: only 3 are left to ship."
+            },
+            {
+              "action": "Ship the remaining 3.",
+              "expected": "Status Shipped."
+            },
+            {
+              "action": "Press Print... > Invoice...",
+              "expected": "Two invoices to choose from, with different numbers; the newest is selected."
+            }
+          ]
+        },
+        {
+          "key": "FI-ORD-004",
+          "title": "An order takes finished products first",
+          "priority": "Medium",
+          "area": "Desktop and phone",
+          "preconditions": "A product with 2 finished on the shelf and parts for more. An order for 3.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open the order's Stock tab.",
+              "expected": "The first row is the product \"(finished product)\" with 2; then the parts for the third."
+            },
+            {
+              "action": "Reserve and ship.",
+              "expected": "Two leave the product's stock, and the parts of one leave theirs."
+            }
+          ]
+        },
+        {
+          "key": "FI-ORD-005",
+          "title": "An order line asks for a variant",
+          "priority": "High",
+          "area": "Desktop and phone",
+          "preconditions": "QA Hook with variants and stock of Red M only.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Add a line for QA Hook without a variant.",
+              "expected": "Refused: the product comes in variants - say which."
+            },
+            {
+              "action": "Type \"red\" as the variant where only one red variant has that word alone, or pick Colour=Red, Size=M.",
+              "expected": "The line is stored as \"QA Hook, Colour=Red, Size=M\"."
+            },
+            {
+              "action": "Add a second line for Colour=Blue, Size=M and reserve.",
+              "expected": "Refused: the blue ones are short. Nothing is reserved."
+            }
+          ]
+        },
+        {
+          "key": "FI-ORD-006",
+          "title": "Order confirmation, packing slip and invoice",
+          "priority": "Medium",
+          "area": "Desktop",
+          "preconditions": "A shipped order of a customer with an address.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "On the Stock tab press Print... > Order Confirmation.",
+              "expected": "A document with the customer's address, the lines, prices and the total, black on white."
+            },
+            {
+              "action": "Choose Packing Slip.",
+              "expected": "Ordered / shipped / still to come, and no prices."
+            },
+            {
+              "action": "In the document press Save as PDF... and open the file.",
+              "expected": "A PDF with the same content."
+            }
+          ]
+        },
+        {
+          "key": "FI-ORD-007",
+          "title": "What the open orders are short of",
+          "priority": "Medium",
+          "area": "Desktop and phone",
+          "preconditions": "Two open orders that together need more of a part than is free; a template makes that part.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open Data > Order Shortages...",
+              "expected": "The sentence says how many parts are short; the part is listed with needed, free, short and both orders."
+            },
+            {
+              "action": "Select it and press Plan Assembly...",
+              "expected": "A small dialog with a name and the missing quantity."
+            },
+            {
+              "action": "Confirm.",
+              "expected": "The list says what was planned; \"Being made\" shows the quantity and the part is no longer to make."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Purchasing",
+      "description": "Suppliers, purchase orders, receiving, the reorder list.",
+      "cases": [
+        {
+          "key": "FI-BUY-001",
+          "title": "Place a purchase order and receive it in two deliveries",
+          "priority": "High",
+          "area": "Desktop and phone",
+          "preconditions": "A supplier and a part.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Add a purchase order for the supplier with a line of 100 at 0.10. On the Receiving tab press Place Order.",
+              "expected": "Status Ordered; the lines cannot be changed."
+            },
+            {
+              "action": "Press Receive..., type 60 and a location.",
+              "expected": "A new lot of 60 at 0.10; the line says received 60, outstanding 40."
+            },
+            {
+              "action": "Receive 41.",
+              "expected": "Refused: only 40 is outstanding."
+            },
+            {
+              "action": "Receive 40.",
+              "expected": "Status Received, with the date."
+            }
+          ]
+        },
+        {
+          "key": "FI-BUY-002",
+          "title": "Close an order whose rest is not coming",
+          "priority": "Low",
+          "area": "Desktop and phone",
+          "preconditions": "A placed order with something outstanding.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Press Close...",
+              "expected": "A question is asked."
+            },
+            {
+              "action": "Confirm.",
+              "expected": "Status Closed. What came in stays in stock."
+            }
+          ]
+        },
+        {
+          "key": "FI-BUY-003",
+          "title": "The reorder list and purchase orders made from it",
+          "priority": "High",
+          "area": "Desktop and phone",
+          "preconditions": "A part with a reorder level of 30, a supplier, and 10 in stock.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open Data > Reorder List...",
+              "expected": "The part is listed: in stock 10, level 30, below by 20, to order 20."
+            },
+            {
+              "action": "Press Create Purchase Orders... and confirm.",
+              "expected": "One open order for the supplier with a line of 20; the list says 20 \"on open orders\"."
+            },
+            {
+              "action": "Press Create Purchase Orders... again.",
+              "expected": "No order is made: the part is already on an open purchase order."
+            },
+            {
+              "action": "Take the supplier off the part and try again with another part below its level.",
+              "expected": "It names the parts for which no supplier is said."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Waste",
+      "description": "Kinds of waste, what a job wasted, the waste report.",
+      "cases": [
+        {
+          "key": "FI-WASTE-001",
+          "title": "Waste with a material takes stock and costs",
+          "priority": "Medium",
+          "area": "Desktop and phone",
+          "preconditions": "A waste type \"Purge\" for a printer model, a machine of that model put down for an assembly, filament in stock.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "On the assembly's Waste tab press Add Waste...: Purge, the filament as material, 20 g.",
+              "expected": "Listed with a cost; the filament's stock is 20 g less."
+            },
+            {
+              "action": "Change the quantity to 30.",
+              "expected": "The stock is 30 g less than at the start; the cost follows."
+            },
+            {
+              "action": "Delete the entry.",
+              "expected": "The stock is back."
+            }
+          ]
+        },
+        {
+          "key": "FI-WASTE-002",
+          "title": "A batch's figure takes precedence over its assemblies'",
+          "priority": "Low",
+          "area": "Desktop",
+          "preconditions": "A batch of two assemblies, each with waste of the same kind.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open the batch's Waste tab.",
+              "expected": "One row \"added up from 2 assemblies\"."
+            },
+            {
+              "action": "Edit that row and store it.",
+              "expected": "It becomes the batch's own figure; the assemblies' rows say \"superseded by the batch\"."
+            },
+            {
+              "action": "Open Data > Waste Report... for this year.",
+              "expected": "The kind shows the batch's figure for this month, not the sum of all three."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Money and currency",
+      "description": "The server's currency, margins, the value of the stock, sales.",
+      "cases": [
+        {
+          "key": "FI-MONEY-001",
+          "title": "Choose the currency",
+          "priority": "High",
+          "area": "Desktop and phone",
+          "preconditions": "The server is running and you are logged in as an administrator.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open Server > Currency...",
+              "expected": "The currency in use is selected; Save is disabled. The dialog says that nothing is converted."
+            },
+            {
+              "action": "Choose Euro.",
+              "expected": "The example reads \"12.50 €\" and Save is enabled."
+            },
+            {
+              "action": "Save.",
+              "expected": "The status bar says amounts are shown in Euro now. The Products list shows prices with the sign."
+            },
+            {
+              "action": "Edit a product.",
+              "expected": "The price field itself shows the plain number 12.50."
+            }
+          ]
+        },
+        {
+          "key": "FI-MONEY-002",
+          "title": "The phone follows the currency",
+          "priority": "Medium",
+          "area": "Phone",
+          "preconditions": "The currency was just changed on the desktop.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "On the phone log out and in, or reopen a page with amounts (a product's Inventory).",
+              "expected": "Amounts carry the new sign."
+            },
+            {
+              "action": "Open the menu > Currency as an administrator.",
+              "expected": "The currency in use is chosen, with what an amount looks like."
+            }
+          ]
+        },
+        {
+          "key": "FI-MONEY-003",
+          "title": "Margins",
+          "priority": "Medium",
+          "area": "Desktop and phone",
+          "preconditions": "A product with a retail price of 10.00, finished stock at 5.00, and a variant with its own price of 15.00.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open Data > Product Money..., tab Margins.",
+              "expected": "The product: cost 5.00 from \"the stock on the shelf\", margin 5.00, 50.0%."
+            },
+            {
+              "action": "Look at the variant's row under it.",
+              "expected": "Retail 15.00, margin 10.00, 66.7%."
+            },
+            {
+              "action": "Look at a product without a price.",
+              "expected": "No margin; the note says it has no retail price."
+            }
+          ]
+        },
+        {
+          "key": "FI-MONEY-004",
+          "title": "Stock value and sales by month",
+          "priority": "Medium",
+          "area": "Desktop and phone",
+          "preconditions": "Finished stock, and at least one shipped order this year.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open the tab Stock Value.",
+              "expected": "Each shelf with something on it: pieces, value at cost and at retail prices; the sentence above adds them up."
+            },
+            {
+              "action": "Open the tab Sales.",
+              "expected": "What was shipped this year by product and variant, with the pieces in the month's column and the amount."
+            },
+            {
+              "action": "Set the year to one without sales.",
+              "expected": "\"Nothing was shipped in <year>.\""
+            },
+            {
+              "action": "Press Print... on a tab.",
+              "expected": "The tab as a document, to print or save as PDF."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Several records at once",
+      "description": "Multi-selection: delete, parts into a template, assemblies into a batch.",
+      "cases": [
+        {
+          "key": "FI-MULTI-001",
+          "title": "Delete several rows with one question",
+          "priority": "High",
+          "area": "Desktop",
+          "preconditions": "Three parts: two plain ones, and one with stock.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "In the Parts list click the first plain part and Ctrl+click the second. Press Del.",
+              "expected": "One question: \"Delete 2 parts?\" with both names; the button says Delete and Cancel is the default."
+            },
+            {
+              "action": "Press Cancel, then Del again and Delete.",
+              "expected": "After Cancel nothing changed. After Delete both are gone and the status bar says 2 of 2 parts deleted."
+            },
+            {
+              "action": "Select the part with stock and another part; press Del.",
+              "expected": "A warning lists what the first takes with it; the button says Delete All of It."
+            }
+          ]
+        },
+        {
+          "key": "FI-MULTI-002",
+          "title": "Selected parts become a new assembly template",
+          "priority": "High",
+          "area": "Desktop",
+          "preconditions": "Three parts that no template uses.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Select two of them (Shift or Ctrl). Right-click one and choose New Assembly Template of Selected...",
+              "expected": "A dialog names the two parts. Make Template is disabled."
+            },
+            {
+              "action": "Type a name.",
+              "expected": "The Makes box fills in with the same name; the two selected parts are not offered in it."
+            },
+            {
+              "action": "Type 2 into \"Plan an assembly for\" and press Make Template.",
+              "expected": "The browser shows the new template with both parts, one of each. A new part of that name exists and an assembly for 2 is planned."
+            }
+          ]
+        },
+        {
+          "key": "FI-MULTI-003",
+          "title": "Selected parts are added to an existing template",
+          "priority": "Medium",
+          "area": "Desktop",
+          "preconditions": "A template, a part it has already, a part it has not, and the part it makes.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Select the part it makes and choose Data > With the Selected > Add Parts to an Assembly Template...; pick the template.",
+              "expected": "Refused in the dialog: it is what the template makes. Nothing was added."
+            },
+            {
+              "action": "Cancel. Select the two other parts and add them to the template.",
+              "expected": "The status bar says 1 part was added and that it had the other already."
+            }
+          ]
+        },
+        {
+          "key": "FI-MULTI-004",
+          "title": "Selected assemblies become a batch",
+          "priority": "High",
+          "area": "Desktop",
+          "preconditions": "Three planned assemblies that are in no batch.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "In the Assemblies list select two and choose New Batch of Selected...; type a name and press Make Batch.",
+              "expected": "The browser shows the new batch; its Run tab lists the two."
+            },
+            {
+              "action": "Select one of those two and the third; choose New Batch of Selected... and a name.",
+              "expected": "Refused in the dialog: one is in another batch. No batch was made - check the Assembly Batches list."
+            },
+            {
+              "action": "Select the third alone and choose Add Selected to a Batch...; pick the batch.",
+              "expected": "It is added."
+            }
+          ]
+        },
+        {
+          "key": "FI-MULTI-005",
+          "title": "Multi-select on the phone",
+          "priority": "High",
+          "area": "Phone",
+          "preconditions": "Parts and assemblies as above.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "In the Parts list press and hold a row.",
+              "expected": "A bar appears over the list with \"1 selected\", Delete, New Template, Add to Template and Cancel; the add button is gone."
+            },
+            {
+              "action": "Tap a second row, then tap it again.",
+              "expected": "\"2 selected\", then \"1 selected\"."
+            },
+            {
+              "action": "Tap Delete.",
+              "expected": "One question with the record's name (or \"Delete 2 parts?\") and what goes with it."
+            },
+            {
+              "action": "Tap Cancel in the bar.",
+              "expected": "The bar goes; a tap opens a record again."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "The phone app",
+      "description": "What is particular to the phone.",
+      "cases": [
+        {
+          "key": "FI-PHONE-001",
+          "title": "Browse, add and change a record",
+          "priority": "High",
+          "area": "Phone",
+          "preconditions": "Logged in on the phone.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open Parts and tap a part.",
+              "expected": "Its page opens read-only."
+            },
+            {
+              "action": "Tap the pencil, change the description and tap Save.",
+              "expected": "The page is read-only again with the new text."
+            },
+            {
+              "action": "Go back and add a part with the round button.",
+              "expected": "The page closes once it is stored; the part is in the list."
+            },
+            {
+              "action": "Open the part, start editing, change something and press Back.",
+              "expected": "It asks before discarding what was typed."
+            }
+          ]
+        },
+        {
+          "key": "FI-PHONE-002",
+          "title": "Scan a barcode to find a record",
+          "priority": "Medium",
+          "area": "Phone",
+          "preconditions": "A part whose part number is printed as a barcode.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open the menu > Scan Barcode and allow the camera.",
+              "expected": "The camera picture is shown."
+            },
+            {
+              "action": "Scan the part's barcode.",
+              "expected": "The part's page opens."
+            },
+            {
+              "action": "Scan a code nothing has.",
+              "expected": "It offers to add a part or a product with that number."
+            }
+          ]
+        },
+        {
+          "key": "FI-PHONE-003",
+          "title": "Take a photo of a part",
+          "priority": "Low",
+          "area": "Phone",
+          "preconditions": "A part, opened for editing.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Tap Images, then Take Photo.",
+              "expected": "The camera opens."
+            },
+            {
+              "action": "Take the picture, give it a name and save.",
+              "expected": "The thumbnail is in the grid."
+            },
+            {
+              "action": "Open the same part on the desktop: Data > Images of Selected...",
+              "expected": "The picture is there and can be viewed full size."
+            }
+          ]
+        },
+        {
+          "key": "FI-PHONE-004",
+          "title": "Rotating and a wide window",
+          "priority": "Low",
+          "area": "Phone",
+          "preconditions": "Any record page.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Turn the phone on its side.",
+              "expected": "The fields arrange in two columns; nothing is cut off."
+            },
+            {
+              "action": "Turn it back.",
+              "expected": "One column again, with what was typed still there."
+            }
+          ]
+        },
+        {
+          "key": "FI-PHONE-005",
+          "title": "The Back button",
+          "priority": "Medium",
+          "area": "Phone",
+          "preconditions": "Several pages open.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Press the phone's Back button.",
+              "expected": "The app goes back one page."
+            },
+            {
+              "action": "Press Back on the first page.",
+              "expected": "The app closes (or goes to the background); it does not hang."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "The server",
+      "description": "Backups, the license, discovery, running as a service.",
+      "cases": [
+        {
+          "key": "FI-SRV-001",
+          "title": "Automatic backups and a backup by hand",
+          "priority": "High",
+          "area": "Desktop",
+          "preconditions": "The server is running and you are logged in as an administrator.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open Server > Database Backups...",
+              "expected": "The schedule (every 24 hours, keep 14), the folder, the last and the next backup, and the files."
+            },
+            {
+              "action": "Press Back Up Now.",
+              "expected": "A new file FactoryBackup-<date>-<time>.sqlite is listed."
+            },
+            {
+              "action": "Set \"Keep the newest\" to 1 and save.",
+              "expected": "Only the newest file is left."
+            },
+            {
+              "action": "Put the schedule back.",
+              "expected": "Stored."
+            }
+          ]
+        },
+        {
+          "key": "FI-SRV-002",
+          "title": "Go back to a backup",
+          "priority": "High",
+          "area": "Server",
+          "preconditions": "A backup file made before a part was deleted. Access to the server's PC.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Stop the service. Copy the backup file over the database file in the data folder. Start the service.",
+              "expected": "The service starts."
+            },
+            {
+              "action": "Log in and look for the part.",
+              "expected": "It is there again, with its stock."
+            }
+          ]
+        },
+        {
+          "key": "FI-SRV-003",
+          "title": "The license in About",
+          "priority": "Medium",
+          "area": "Desktop and phone",
+          "preconditions": "A server on the Free edition.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open Help > About.",
+              "expected": "Edition Free, the connections allowed and in use, and \"At most 25 products\"."
+            },
+            {
+              "action": "Press Apply License File... and choose a text file that is no license.",
+              "expected": "Refused with the server's reason; the edition stays Free."
+            },
+            {
+              "action": "Stop the server and open About again.",
+              "expected": "It says the server is not available - not that the license is unknown or refused."
+            }
+          ]
+        },
+        {
+          "key": "FI-SRV-004",
+          "title": "Find the server on the network",
+          "priority": "Low",
+          "area": "Desktop and phone",
+          "preconditions": "App and server in the same network.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "In Server Settings press Find on Network.",
+              "expected": "After a few seconds the server is listed by name and address."
+            },
+            {
+              "action": "Choose it.",
+              "expected": "The address box is filled in; nothing is saved or sent until Test Connection or OK."
+            }
+          ]
+        },
+        {
+          "key": "FI-SRV-005",
+          "title": "The server survives a restart of the PC",
+          "priority": "High",
+          "area": "Server",
+          "preconditions": "An installed server.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Restart the PC and do not log in to Windows.",
+              "expected": "From another PC the desktop app can log in: the service started by itself."
+            },
+            {
+              "action": "Log in to Windows and open the settings program.",
+              "expected": "Step 1 says the server is running."
+            }
+          ]
+        },
+        {
+          "key": "FI-SRV-006",
+          "title": "Two users change the same record",
+          "priority": "Medium",
+          "area": "Desktop",
+          "preconditions": "Two desktop apps logged in as different users (a license for two desktop connections).",
+          "notes": "",
+          "steps": [
+            {
+              "action": "In both, open the same part and press Edit.",
+              "expected": "Both forms are editable."
+            },
+            {
+              "action": "Save a new description in the first, then another in the second.",
+              "expected": "The second save is stored: the last one wins, and nobody gets an error."
+            },
+            {
+              "action": "Press Refresh in the first.",
+              "expected": "It shows the second user's description."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Look and feel",
+      "description": "Themes, fields, things that are easy to break.",
+      "cases": [
+        {
+          "key": "FI-UI-001",
+          "title": "Light and dark",
+          "priority": "Medium",
+          "area": "Desktop",
+          "preconditions": "Windows set to the light mode.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Choose View > Theme > Dark.",
+              "expected": "Every window and dialog is dark; no text is unreadable, error text is still told apart."
+            },
+            {
+              "action": "Open a document (an order's Print...).",
+              "expected": "The document is black on white all the same."
+            },
+            {
+              "action": "Choose System and switch Windows to dark and back.",
+              "expected": "The app follows without a restart."
+            }
+          ]
+        },
+        {
+          "key": "FI-UI-002",
+          "title": "Hide a column and a field",
+          "priority": "Low",
+          "area": "Desktop",
+          "preconditions": "The Parts list.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Right-click the list's header and untick Description.",
+              "expected": "The column is gone; it stays gone after a restart."
+            },
+            {
+              "action": "Open a part and use Fields to hide a row of the form.",
+              "expected": "The row is hidden; the value is still stored when the part is saved."
+            },
+            {
+              "action": "Choose Show All in both.",
+              "expected": "Everything is back."
+            }
+          ]
+        },
+        {
+          "key": "FI-UI-003",
+          "title": "Sort the list by a column",
+          "priority": "Low",
+          "area": "Desktop",
+          "preconditions": "The Products list with several products in stock.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Click the header \"In stock\".",
+              "expected": "The rows are sorted by the number, smallest first."
+            },
+            {
+              "action": "Double-click the first row.",
+              "expected": "The form of that very product opens - not of the one that stood first before sorting."
+            },
+            {
+              "action": "Click the header twice more.",
+              "expected": "Largest first, then back to the order by name."
+            }
+          ]
+        },
+        {
+          "key": "FI-UI-004",
+          "title": "A record is made where it is chosen",
+          "priority": "Medium",
+          "area": "Desktop and phone",
+          "preconditions": "A part without a category.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Edit the part and press New... beside Category.",
+              "expected": "The dialog that adds a category opens over the form."
+            },
+            {
+              "action": "Add \"QA Category\".",
+              "expected": "It is chosen in the box; what was typed in the form is still there."
+            },
+            {
+              "action": "Save, then open Lists > Categories.",
+              "expected": "The category is listed."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

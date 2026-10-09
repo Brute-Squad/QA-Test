@@ -1,0 +1,530 @@
+#include "runpanel.h"
+
+#include "report.h"
+
+#include <QComboBox>
+#include <QDateTime>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QFormLayout>
+#include <QHBoxLayout>
+#include <QHeaderView>
+#include <QLabel>
+#include <QLineEdit>
+#include <QListWidget>
+#include <QLocale>
+#include <QMessageBox>
+#include <QPlainTextEdit>
+#include <QPushButton>
+#include <QSettings>
+#include <QSpinBox>
+#include <QSplitter>
+#include <QTableWidget>
+#include <QVBoxLayout>
+
+namespace
+{
+    QString localTime(const QString &utc)
+    {
+        const QDateTime when = QDateTime::fromString(utc, Qt::ISODate);
+        return when.isValid() ? QLocale().toString(when.toLocalTime(), QLocale::ShortFormat) : utc;
+    }
+
+    // A mark before a result, so that it reads at a glance whatever the colors are.
+    QString marked(const QString &status)
+    {
+        if (status == QaDatabase::passed())
+            return QString::fromUtf8("\xE2\x9C\x94 ") + status;
+        if (status == QaDatabase::failed())
+            return QString::fromUtf8("\xE2\x9C\x98 ") + status;
+        if (status == QaDatabase::blocked())
+            return QString::fromUtf8("\xE2\x96\xA0 ") + status;
+        if (status == QaDatabase::skipped())
+            return QString::fromUtf8("\xE2\x80\x93 ") + status;
+        return status;
+    }
+}
+
+RunPanel::RunPanel(QaDatabase *database, QWidget *parent)
+    : QWidget(parent)
+    , m_database(database)
+    , m_tester(QSettings().value(QStringLiteral("Tester")).toString())
+{
+    m_run = new QComboBox(this);
+    m_run->setObjectName(QStringLiteral("runChoice"));
+    m_run->setMinimumContentsLength(30);
+    m_new = new QPushButton(QStringLiteral("&New Run..."), this);
+    m_new->setObjectName(QStringLiteral("newRun"));
+    m_finish = new QPushButton(QStringLiteral("&Finish"), this);
+    m_delete = new QPushButton(QStringLiteral("&Delete Run..."), this);
+    m_report = new QPushButton(QStringLiteral("&Report..."), this);
+    auto *top = new QHBoxLayout;
+    top->addWidget(new QLabel(QStringLiteral("Run:"), this));
+    top->addWidget(m_run, 1);
+    top->addWidget(m_new);
+    top->addWidget(m_finish);
+    top->addWidget(m_report);
+    top->addWidget(m_delete);
+
+    m_summary = new QLabel(this);
+    m_summary->setObjectName(QStringLiteral("runSummary"));
+    QFont bold = m_summary->font();
+    bold.setBold(true);
+    m_summary->setFont(bold);
+    m_summary->setWordWrap(true);
+
+    m_filter = new QComboBox(this);
+    m_filter->setObjectName(QStringLiteral("runFilter"));
+    m_filter->addItem(QStringLiteral("All results"));
+    m_filter->addItems(QaDatabase::statuses());
+    auto *second = new QHBoxLayout;
+    second->addWidget(m_summary, 1);
+    second->addWidget(new QLabel(QStringLiteral("Show:"), this));
+    second->addWidget(m_filter);
+
+    m_table = new QTableWidget(0, 7, this);
+    m_table->setObjectName(QStringLiteral("runResults"));
+    m_table->setHorizontalHeaderLabels({ QStringLiteral("Suite"), QStringLiteral("Key"), QStringLiteral("Title"), QStringLiteral("Result"), QStringLiteral("By"),
+                                         QStringLiteral("When"), QStringLiteral("Notes") });
+    m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_table->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_table->verticalHeader()->hide();
+    m_table->horizontalHeader()->setStretchLastSection(true);
+
+    // ---- the case that is selected, to work through
+    auto *work = new QWidget(this);
+    m_caseTitle = new QLabel(work);
+    m_caseTitle->setObjectName(QStringLiteral("runCaseTitle"));
+    m_caseTitle->setFont(bold);
+    m_caseTitle->setWordWrap(true);
+    m_preconditions = new QLabel(work);
+    m_preconditions->setObjectName(QStringLiteral("runPreconditions"));
+    m_preconditions->setWordWrap(true);
+    m_preconditions->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    m_steps = new QTableWidget(0, 3, work);
+    m_steps->setObjectName(QStringLiteral("runSteps"));
+    m_steps->setHorizontalHeaderLabels({ QStringLiteral("#"), QStringLiteral("Step: what to do"), QStringLiteral("Expected: what is to happen") });
+    m_steps->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_steps->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_steps->setWordWrap(true);
+    m_steps->verticalHeader()->hide();
+    m_steps->verticalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    m_steps->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    m_steps->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_steps->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
+    m_notes = new QPlainTextEdit(work);
+    m_notes->setObjectName(QStringLiteral("runNotes"));
+    m_notes->setPlaceholderText(QStringLiteral("What happened - for a failure: what was seen instead of what was expected"));
+    m_notes->setMaximumHeight(70);
+    m_failedStep = new QSpinBox(work);
+    m_failedStep->setObjectName(QStringLiteral("runFailedStep"));
+    m_failedStep->setSpecialValueText(QStringLiteral("not said"));
+    m_failedStep->setToolTip(QStringLiteral("For a failure: the number of the step that did not go as expected."));
+    m_problem = new QLabel(work);
+    m_problem->setObjectName(QStringLiteral("runProblem"));
+    m_problem->setWordWrap(true);
+    m_problem->hide();
+
+    auto *buttons = new QHBoxLayout;
+    buttons->addWidget(new QLabel(QStringLiteral("Failed at step:"), work));
+    buttons->addWidget(m_failedStep);
+    buttons->addStretch(1);
+    const QStringList captions { QStringLiteral("&Passed"), QStringLiteral("&Failed"), QStringLiteral("&Blocked"), QStringLiteral("S&kipped"), QStringLiteral("Not R&un") };
+    const QStringList statuses { QaDatabase::passed(), QaDatabase::failed(), QaDatabase::blocked(), QaDatabase::skipped(), QaDatabase::notRun() };
+    for (int i = 0; i < statuses.size(); ++i)
+    {
+        auto *button = new QPushButton(captions.at(i), work);
+        button->setObjectName(QStringLiteral("mark") + QString(statuses.at(i)).remove(QLatin1Char(' ')));
+        const QString status = statuses.at(i);
+        connect(button, &QPushButton::clicked, this, [this, status]() { store(status); });
+        buttons->addWidget(button);
+        m_statusButtons << button;
+    }
+
+    auto *workLayout = new QVBoxLayout(work);
+    workLayout->setContentsMargins(0, 0, 0, 0);
+    workLayout->addWidget(m_caseTitle);
+    workLayout->addWidget(m_preconditions);
+    workLayout->addWidget(m_steps, 1);
+    workLayout->addWidget(m_notes);
+    workLayout->addWidget(m_problem);
+    workLayout->addLayout(buttons);
+
+    auto *splitter = new QSplitter(Qt::Vertical, this);
+    splitter->addWidget(m_table);
+    splitter->addWidget(work);
+    splitter->setStretchFactor(0, 1);
+    splitter->setStretchFactor(1, 1);
+
+    auto *layout = new QVBoxLayout(this);
+    layout->addLayout(top);
+    layout->addLayout(second);
+    layout->addWidget(splitter, 1);
+
+    connect(m_run, &QComboBox::currentIndexChanged, this, [this]() { showRun(); });
+    connect(m_filter, &QComboBox::currentIndexChanged, this, [this]() { showRun(); });
+    connect(m_table, &QTableWidget::itemSelectionChanged, this, &RunPanel::showSelected);
+    connect(m_new, &QPushButton::clicked, this, &RunPanel::askForRun);
+    connect(m_delete, &QPushButton::clicked, this, &RunPanel::deleteRun);
+    connect(m_finish, &QPushButton::clicked, this, &RunPanel::toggleFinished);
+    connect(m_report, &QPushButton::clicked, this, &RunPanel::showReport);
+
+    setProject(0, QString());
+}
+
+qint64 RunPanel::runId() const
+{
+    return currentRun().id;
+}
+
+QaRun RunPanel::currentRun() const
+{
+    const int index = m_run->currentIndex();
+    return index >= 0 && index < m_runs.size() ? m_runs.at(index) : QaRun();
+}
+
+int RunPanel::selectedIndex() const
+{
+    const int row = m_table->currentRow();
+    return row >= 0 && row < m_shown.size() && m_table->selectionModel()->hasSelection() ? m_shown.at(row) : -1;
+}
+
+void RunPanel::setProject(qint64 projectId, const QString &projectName)
+{
+    m_projectId = projectId;
+    m_projectName = projectName;
+    loadRuns();
+}
+
+// What is in the database now - a shared one may have changed - with what is being
+// typed about the selected case left as it is.
+void RunPanel::reload()
+{
+    const int before = selectedIndex();
+    const qint64 caseId = before >= 0 ? m_results.at(before).caseId : 0;
+    const QString typed = m_notes->toPlainText();
+    const int step = m_failedStep->value();
+
+    loadRuns(runId());
+
+    const int after = selectedIndex();
+    if (caseId != 0 && after >= 0 && m_results.at(after).caseId == caseId)
+    {
+        m_notes->setPlainText(typed);
+        m_failedStep->setValue(step);
+    }
+}
+
+void RunPanel::loadRuns(qint64 selectId)
+{
+    QString error;
+    m_runs.clear();
+    if (m_projectId != 0)
+        m_database->runs(m_projectId, m_runs, error);
+
+    m_run->blockSignals(true);
+    m_run->clear();
+    int select = m_runs.isEmpty() ? -1 : 0;
+    for (int i = 0; i < m_runs.size(); ++i)
+    {
+        const QaRun &run = m_runs.at(i);
+        m_run->addItem(QStringLiteral("%1%2  -  %3%4").arg(run.name, run.build.isEmpty() ? QString() : QStringLiteral(" (%1)").arg(run.build), localTime(run.started),
+                                                          run.finished.isEmpty() ? QString() : QStringLiteral("  -  finished")));
+        if (run.id == selectId)
+            select = i;
+    }
+    m_run->setCurrentIndex(select);
+    m_run->blockSignals(false);
+    m_new->setEnabled(m_projectId != 0);
+    showRun();
+}
+
+void RunPanel::showRun()
+{
+    const QaRun run = currentRun();
+    const qint64 keep = selectedIndex() >= 0 ? m_results.at(selectedIndex()).caseId : 0;
+
+    QString error;
+    m_results.clear();
+    QaSummary counts;
+    if (run.id != 0)
+    {
+        m_database->results(run.id, m_results, error);
+        m_database->summary(run.id, counts, error);
+    }
+    m_summary->setText(m_projectId == 0 ? QStringLiteral("Choose a project in the list on the left.")
+                       : run.id == 0 ? QStringLiteral("%1 has no test run yet. New Run... starts one.").arg(m_projectName)
+                                     : counts.text() + (run.finished.isEmpty() ? QString() : QStringLiteral("  (finished %1)").arg(localTime(run.finished))));
+    m_finish->setEnabled(run.id != 0);
+    m_finish->setText(run.finished.isEmpty() ? QStringLiteral("&Finish") : QStringLiteral("Re&open"));
+    m_delete->setEnabled(run.id != 0);
+    m_report->setEnabled(run.id != 0);
+
+    const QString only = m_filter->currentIndex() > 0 ? m_filter->currentText() : QString();
+    m_shown.clear();
+    m_table->blockSignals(true);
+    m_table->setRowCount(0);
+    int selectRow = -1;
+    for (int i = 0; i < m_results.size(); ++i)
+    {
+        const QaResult &result = m_results.at(i);
+        if (!only.isEmpty() && result.status != only)
+            continue;
+        const int row = m_table->rowCount();
+        m_table->insertRow(row);
+        m_shown << i;
+        const QStringList cells { result.suiteName, result.caseKey, result.caseTitle,
+                                  result.status == QaDatabase::failed() && result.failedStep > 0 ? QStringLiteral("%1 (step %2)").arg(marked(result.status)).arg(result.failedStep)
+                                                                                                 : marked(result.status),
+                                  result.tester, localTime(result.executed), result.notes.simplified() };
+        for (int column = 0; column < cells.size(); ++column)
+            m_table->setItem(row, column, new QTableWidgetItem(cells.at(column)));
+        if (result.caseId == keep)
+            selectRow = row;
+    }
+    m_table->resizeColumnsToContents();
+    m_table->horizontalHeader()->setStretchLastSection(true);
+    m_table->blockSignals(false);
+    if (selectRow >= 0)
+        m_table->selectRow(selectRow);
+    else if (m_table->rowCount() > 0)
+        m_table->selectRow(0);
+    showSelected();
+}
+
+// The case that is selected: what there is to do, and what was noted of it.
+void RunPanel::showSelected()
+{
+    const int index = selectedIndex();
+    const bool has = index >= 0;
+    const bool open = has && currentRun().finished.isEmpty();
+    m_problem->hide();
+    m_steps->setRowCount(0);
+    for (QPushButton *button : std::as_const(m_statusButtons))
+        button->setEnabled(open);
+    m_notes->setEnabled(open);
+    m_failedStep->setEnabled(open);
+    if (!has)
+    {
+        m_caseTitle->setText(currentRun().id == 0 ? QString() : QStringLiteral("Select a test case above."));
+        m_preconditions->clear();
+        m_notes->clear();
+        m_failedStep->setRange(0, 0);
+        return;
+    }
+
+    const QaResult &result = m_results.at(index);
+    QaCase testCase;
+    QString error;
+    m_database->loadCase(result.caseId, testCase, error);
+    m_caseTitle->setText(QStringLiteral("%1  %2   [%3%4]").arg(result.caseKey, result.caseTitle, result.priority,
+                                                             result.area.isEmpty() ? QString() : QStringLiteral(", %1").arg(result.area)));
+    QStringList before;
+    if (!testCase.preconditions.isEmpty())
+        before << QStringLiteral("Before you start: %1").arg(testCase.preconditions);
+    if (!testCase.notes.isEmpty())
+        before << QStringLiteral("Note: %1").arg(testCase.notes);
+    if (!currentRun().finished.isEmpty())
+        before << QStringLiteral("The run is finished: reopen it to change a result.");
+    m_preconditions->setText(before.join(QLatin1Char('\n')));
+    m_preconditions->setVisible(!before.isEmpty());
+    for (int i = 0; i < testCase.steps.size(); ++i)
+    {
+        m_steps->insertRow(i);
+        m_steps->setItem(i, 0, new QTableWidgetItem(QString::number(i + 1)));
+        m_steps->setItem(i, 1, new QTableWidgetItem(testCase.steps.at(i).action));
+        m_steps->setItem(i, 2, new QTableWidgetItem(testCase.steps.at(i).expected));
+    }
+    m_steps->resizeRowsToContents();
+    m_notes->setPlainText(result.notes);
+    m_failedStep->setRange(0, int(testCase.steps.size()));
+    m_failedStep->setValue(result.failedStep);
+}
+
+// The result of the selected case, stored at once; then on to the next that is not run.
+void RunPanel::store(const QString &status)
+{
+    const int index = selectedIndex();
+    const QaRun run = currentRun();
+    if (index < 0 || run.id == 0)
+        return;
+    const QaResult result = m_results.at(index);
+
+    // A failure says what went wrong: that is what whoever fixes it reads.
+    if (status == QaDatabase::failed() && m_notes->toPlainText().trimmed().isEmpty())
+    {
+        m_problem->setText(QStringLiteral("Say in the notes what happened instead of what was expected - then press Failed."));
+        m_problem->show();
+        m_notes->setFocus();
+        return;
+    }
+    QString error;
+    if (!m_database->setResult(run.id, result.caseId, status, m_notes->toPlainText().trimmed(), m_failedStep->value(),
+                               run.tester.isEmpty() ? m_tester : run.tester, error))
+    {
+        m_problem->setText(error);
+        m_problem->show();
+        return;
+    }
+
+    // The next case that is not run yet, after this one - or, when there is none, this one stays.
+    qint64 next = result.caseId;
+    if (status != QaDatabase::notRun())
+    {
+        for (int step = 1; step < m_results.size(); ++step)
+        {
+            const QaResult &candidate = m_results.at((index + step) % m_results.size());
+            if (candidate.status == QaDatabase::notRun())
+            {
+                next = candidate.caseId;
+                break;
+            }
+        }
+    }
+    showRun();
+    for (int row = 0; row < m_shown.size(); ++row)
+        if (m_results.at(m_shown.at(row)).caseId == next)
+            m_table->selectRow(row);
+    emit resultStored();
+}
+
+bool RunPanel::createRun(const QString &name, const QString &build, const QString &tester, const QList<qint64> &suiteIds, QString &error)
+{
+    QaRun run;
+    run.projectId = m_projectId;
+    run.name = name;
+    run.build = build;
+    run.tester = tester;
+    if (!m_database->createRun(run, suiteIds, error))
+        return false;
+    m_tester = tester.trimmed();
+    QSettings().setValue(QStringLiteral("Tester"), m_tester);
+    m_filter->setCurrentIndex(0);
+    loadRuns(run.id);
+    return true;
+}
+
+// Ask what the run is called, what is tested, who tests and which suites - then make it.
+void RunPanel::askForRun()
+{
+    if (m_projectId == 0)
+        return;
+    auto *dialog = new QDialog(this);
+    dialog->setObjectName(QStringLiteral("newRunDialog"));
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setWindowTitle(QStringLiteral("New Test Run"));
+
+    auto *name = new QLineEdit(QStringLiteral("%1 %2").arg(m_projectName, QDate::currentDate().toString(Qt::ISODate)), dialog);
+    name->setObjectName(QStringLiteral("runName"));
+    auto *build = new QLineEdit(dialog);
+    build->setObjectName(QStringLiteral("runBuild"));
+    build->setPlaceholderText(QStringLiteral("The version or build that is tested: 0.2.0 Beta, built 2026-10-09"));
+    auto *tester = new QLineEdit(m_tester, dialog);
+    tester->setObjectName(QStringLiteral("runTester"));
+
+    // The suites to run: all of them unless some are unticked.
+    auto *suites = new QListWidget(dialog);
+    suites->setObjectName(QStringLiteral("runSuites"));
+    QList<QaSuite> list;
+    QString error;
+    m_database->suites(m_projectId, list, error);
+    for (const QaSuite &suite : std::as_const(list))
+    {
+        auto *item = new QListWidgetItem(QStringLiteral("%1  (%2)").arg(suite.name).arg(suite.caseCount), suites);
+        item->setData(Qt::UserRole, suite.id);
+        item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+        item->setCheckState(suite.caseCount > 0 ? Qt::Checked : Qt::Unchecked);
+    }
+
+    auto *problem = new QLabel(dialog);
+    problem->setWordWrap(true);
+    problem->hide();
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dialog);
+    buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("Start Run"));
+
+    auto *form = new QFormLayout;
+    form->addRow(QStringLiteral("Name:"), name);
+    form->addRow(QStringLiteral("Build tested:"), build);
+    form->addRow(QStringLiteral("Tester:"), tester);
+    form->addRow(QStringLiteral("Suites:"), suites);
+    auto *layout = new QVBoxLayout(dialog);
+    layout->addLayout(form);
+    layout->addWidget(problem);
+    layout->addWidget(buttons);
+    dialog->resize(520, 460);
+
+    connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
+    connect(buttons, &QDialogButtonBox::accepted, dialog, [this, dialog, name, build, tester, suites, problem]() {
+        QList<qint64> chosen;
+        for (int i = 0; i < suites->count(); ++i)
+            if (suites->item(i)->checkState() == Qt::Checked)
+                chosen << suites->item(i)->data(Qt::UserRole).toLongLong();
+        QString error;
+        if (chosen.isEmpty())
+            error = QStringLiteral("Tick the suites to run.");
+        else if (createRun(name->text(), build->text(), tester->text(), chosen, error))
+        {
+            dialog->accept();
+            return;
+        }
+        problem->setText(error);
+        problem->show();
+    });
+    dialog->open();
+}
+
+void RunPanel::deleteRun()
+{
+    const QaRun run = currentRun();
+    if (run.id == 0)
+        return;
+    auto *box = new QMessageBox(QMessageBox::Warning, QStringLiteral("Delete Test Run"), QStringLiteral("Delete the test run \"%1\"?").arg(run.name),
+                                QMessageBox::Yes | QMessageBox::Cancel, this);
+    box->setAttribute(Qt::WA_DeleteOnClose);
+    box->setInformativeText(QStringLiteral("Its results go with it: what passed, what failed and the notes. The test cases themselves stay.\n\nThis cannot be undone."));
+    box->button(QMessageBox::Yes)->setText(QStringLiteral("Delete"));
+    box->setDefaultButton(QMessageBox::Cancel);
+    connect(box, &QMessageBox::finished, this, [this, run](int answer) {
+        if (answer != QMessageBox::Yes)
+            return;
+        QString error;
+        m_database->deleteRun(run.id, error);
+        loadRuns();
+        emit resultStored();
+    });
+    box->open();
+}
+
+// Finished: its results stand, and nothing is marked by mistake. Reopen takes that back.
+void RunPanel::toggleFinished()
+{
+    QaRun run = currentRun();
+    if (run.id == 0)
+        return;
+    run.finished = run.finished.isEmpty() ? QDateTime::currentDateTimeUtc().toString(Qt::ISODate) : QString();
+    QString error;
+    m_database->updateRun(run, error);
+    loadRuns(run.id);
+}
+
+QString RunPanel::reportHtml()
+{
+    const QaRun run = currentRun();
+    if (run.id == 0)
+        return QString();
+    QaSummary counts;
+    QString error;
+    m_database->summary(run.id, counts, error);
+    return Report::html(m_projectName, run, counts, m_results);
+}
+
+void RunPanel::showReport()
+{
+    const QString html = reportHtml();
+    if (html.isEmpty())
+        return;
+    auto *dialog = new ReportDialog(QStringLiteral("%1 - %2").arg(m_projectName, currentRun().name), html, this);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->open();
+}

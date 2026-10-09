@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- @VERSION@ and @DATE@ are filled in by installer/build-installer.ps1. -->
+<Package>
+    <DisplayName>QA Test Tracker</DisplayName>
+    <Description>Test cases, test runs and their results in one database - with the test scripts for Factory Inventory.</Description>
+    <Version>@VERSION@</Version>
+    <ReleaseDate>@DATE@</ReleaseDate>
+    <Default>true</Default>
+    <ForcedInstallation>true</ForcedInstallation>
+    <Script>installscript.qs</Script>
+    <!-- The page that asks which database to use: a new one, or one that is there. -->
+    <UserInterfaces>
+        <UserInterface>databasepage.ui</UserInterface>
+    </UserInterfaces>
+</Package>

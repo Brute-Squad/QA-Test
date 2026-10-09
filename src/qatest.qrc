@@ -1,0 +1,9 @@
+<RCC>
+    <!-- The window's icon, in the sizes a title bar and a taskbar ask for (icons/makeicon.cpp makes them). -->
+    <qresource prefix="/icons">
+        <file alias="qatest-16.png">../icons/qatest-16.png</file>
+        <file alias="qatest-32.png">../icons/qatest-32.png</file>
+        <file alias="qatest-48.png">../icons/qatest-48.png</file>
+        <file alias="qatest-256.png">../icons/qatest-256.png</file>
+    </qresource>
+</RCC>

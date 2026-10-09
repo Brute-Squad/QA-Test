@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- @VERSION@ is filled in by installer/build-installer.ps1. -->
+<Installer>
+    <Name>QA Test Tracker</Name>
+    <Version>@VERSION@</Version>
+    <Title>QA Test Tracker Setup</Title>
+    <Publisher>QA Test Tracker</Publisher>
+    <StartMenuDir>QA Test Tracker</StartMenuDir>
+    <!-- For the user who installs it: no administrator's rights are needed.
+         (Not @ApplicationsDirUser@: on Windows that is Program Files.) -->
+    <TargetDir>@HomeDir@/AppData/Local/Programs/QA Test Tracker</TargetDir>
+    <!-- The program's icon (icons/): of the installer's file, and of its window. -->
+    <InstallerApplicationIcon>qatest</InstallerApplicationIcon>
+    <InstallerWindowIcon>qatest.png</InstallerWindowIcon>
+    <MaintenanceToolName>Uninstall QA Test Tracker</MaintenanceToolName>
+    <RunProgram>@TargetDir@/QATest.exe</RunProgram>
+    <RunProgramDescription>Start QA Test Tracker</RunProgramDescription>
+    <!-- Removes a version that is installed already before this one goes in (controller.qs). -->
+    <ControlScript>controller.qs</ControlScript>
+    <WizardStyle>Modern</WizardStyle>
+    <AllowNonAsciiCharacters>true</AllowNonAsciiCharacters>
+</Installer>

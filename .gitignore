@@ -1,0 +1,9 @@
+# What the build makes
+build/
+dist/
+build.log
+
+# What the installer script makes
+installer/work/
+installer/out/
+installer/*.log
