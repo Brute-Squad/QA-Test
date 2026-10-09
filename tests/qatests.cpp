@@ -17,6 +17,9 @@
 //   running        getting through a run faster: whose a case is, a run of
 //                  what failed, the build of each component, files that go
 //                  with a result - and Run Mode, one case at a time
+//   finding        words looked for in cases and their steps, tags, a run of
+//                  a tag, several cases moved, deleted and put into a run at
+//                  once, a case and a suite cloned - and the tree's filters
 //   the window     the program's own window and panels, offscreen, on a
 //                  database in memory: the tree, a case edited and saved, a
 //                  run made and worked through, its report
@@ -30,7 +33,9 @@
 #include "runmode.h"
 #include "runpanel.h"
 
+#include <QAction>
 #include <QApplication>
+#include <QMessageBox>
 #include <QClipboard>
 #include <QImage>
 #include <QItemSelectionModel>
@@ -53,6 +58,7 @@
 #include <QTemporaryDir>
 #include <QTextStream>
 #include <QTreeWidget>
+#include <QTreeWidgetItemIterator>
 
 namespace
 {
@@ -1215,6 +1221,370 @@ namespace
         window.reload();
         check(!modeButton->isEnabled() && runs->openRunMode() == nullptr, "a finished run has no Run Mode");
     }
+
+    // ---- finding and organising ----------------------------------------------------------------------
+    void findTests()
+    {
+        QTemporaryDir folder;
+        const QString file = folder.filePath("qatest.sqlite");
+        QString error;
+        QaImportCounts counts;
+        QaDatabase db;
+        db.setUser("pat");
+        check(db.open(file, error) && db.importJson(sampleScripts(), counts, error), "a database to find things in: " + error);
+        QList<QaProject> projects;
+        QList<QaSuite> suites;
+        QList<QaCase> login, parts;
+        db.projects(projects, error);
+        const qint64 projectId = projects.value(0).id;
+        db.suites(projectId, suites, error);
+        const qint64 loginId = suites.value(0).id, partsId = suites.value(1).id;
+        db.cases(loginId, login, error);
+        db.cases(partsId, parts, error);
+
+        // ---- tags
+        check(QaDatabase::tagList(" Smoke, phone,, SMOKE , two  words ") == QStringList({ "Smoke", "phone", "two words" }) && QaDatabase::tagList(" , ").isEmpty(),
+              "tags as a list: each once, whatever the capitals");
+        check(db.tags(projectId).isEmpty() && login.at(0).tags.isEmpty(), "no case has a tag at first");
+        QaCase first, read;
+        check(db.loadCase(login.at(0).id, first, error), "a case");
+        first.tags = " smoke,Desktop , smoke";
+        check(db.saveCase(first, error) && first.tags == "smoke, Desktop" && db.loadCase(first.id, read, error) && read.tags == "smoke, Desktop"
+              && db.cases(loginId, login, error) && login.at(0).tags == "smoke, Desktop", "a case's tags are stored tidied: " + read.tags);
+        QaCase third;
+        check(db.loadCase(parts.at(0).id, third, error), "another");
+        third.tags = "Smoke";
+        check(db.saveCase(third, error) && db.tags(projectId) == QStringList({ "Desktop", "smoke" }), "every tag of a project, each once: " + db.tags(projectId).join(","));
+        // In a file of test scripts.
+        QJsonObject written;
+        check(db.exportJson(projectId, written, error)
+              && written.value("suites").toArray().at(0).toObject().value("cases").toArray().at(0).toObject().value("tags").toArray().size() == 2
+              && !written.value("suites").toArray().at(0).toObject().value("cases").toArray().at(1).toObject().contains("tags"), "tags are written with the scripts");
+        check(db.importJson(sampleScripts(), counts, error) && db.loadCase(first.id, read, error) && read.tags == "smoke, Desktop", "a file that says no tags leaves a case's");
+        QaDatabase other;
+        QList<QaProject> otherProjects;
+        QList<QaSuite> otherSuites;
+        QList<QaCase> otherCases;
+        check(other.open(":memory:", error) && other.importJson(written, counts, error) && other.projects(otherProjects, error) && other.suites(otherProjects.at(0).id, otherSuites, error)
+              && other.cases(otherSuites.at(0).id, otherCases, error) && otherCases.at(0).tags == "smoke, Desktop" && otherCases.at(1).tags.isEmpty(), "and read back with them");
+
+        // ---- words
+        QList<qint64> found;
+        check(db.search(projectId, "", found, error) && found.size() == 3, "no words: every case");
+        check(db.search(projectId, "PASSWORD", found, error) && found.size() == 2, "a word of a title or of a step, whatever the capitals: " + QString::number(found.size()));
+        check(db.search(projectId, "wrong refused", found, error) && found.size() == 1 && found.at(0) == login.at(1).id, "every word has to be there - in the title, in a step");
+        check(db.search(projectId, "desktop smoke", found, error) && found.size() == 1 && found.at(0) == first.id, "a tag is found too");
+        check(db.search(projectId, "S-PARTS", found, error) && found.size() == 1 && db.search(projectId, "user exists", found, error) && found.size() == 1,
+              "and a key, and what has to be there first");
+        check(db.search(projectId, "zebra", found, error) && found.isEmpty(), "what is nowhere finds nothing");
+        QaCase percent;
+        percent.suiteId = partsId;
+        percent.key = "S-PARTS-050";
+        percent.title = "Count 100% of the stock";
+        percent.steps << QaStep { "Open part_list", "It opens" };
+        QaCase plain;
+        plain.suiteId = partsId;
+        plain.key = "S-PARTS-051";
+        plain.title = "Count 100 items";
+        plain.steps << QaStep { "Open partXlist", "It opens" };
+        check(db.saveCase(percent, error) && db.saveCase(plain, error) && db.search(projectId, "100%", found, error) && found.size() == 1 && found.at(0) == percent.id
+              && db.search(projectId, "part_list", found, error) && found.size() == 1 && found.at(0) == percent.id, "% and _ mean themselves: " + QString::number(found.size()));
+        QaProject second;
+        second.name = "Second";
+        QaSuite secondSuite;
+        secondSuite.name = "Only";
+        QaCase secondCase;
+        secondCase.key = "X-001";
+        secondCase.title = "A wrong password, elsewhere";
+        check(db.addProject(second, error), "a second project");
+        secondSuite.projectId = second.id;
+        check(db.addSuite(secondSuite, error), "with a suite");
+        secondCase.suiteId = secondSuite.id;
+        check(db.saveCase(secondCase, error) && db.search(projectId, "wrong", found, error) && found.size() == 1 && db.search(0, "wrong", found, error) && found.size() == 2,
+              "in one project, or in all of them");
+
+        // ---- a run of a tag
+        QaRun smoke;
+        smoke.projectId = projectId;
+        smoke.name = "Smoke";
+        QList<QaResult> results;
+        check(db.createRun(smoke, {}, error, "SMOKE") && db.results(smoke.id, results, error) && results.size() == 2 && results.at(0).caseKey == "S-LOGIN-001"
+              && results.at(1).caseKey == "S-PARTS-001", "a run of the cases that have a tag, whatever its capitals: " + error);
+        QaRun smokeLogin;
+        smokeLogin.projectId = projectId;
+        smokeLogin.name = "Smoke, login";
+        check(db.createRun(smokeLogin, { loginId }, error, "smoke") && db.results(smokeLogin.id, results, error) && results.size() == 1 && results.at(0).caseKey == "S-LOGIN-001",
+              "of some suites alone: " + error);
+        QaRun none;
+        none.projectId = projectId;
+        none.name = "None";
+        QList<QaRun> runs;
+        check(!db.createRun(none, {}, error, "license") && error.startsWith("No test case of those suites has the tag \"license\"") && db.runs(projectId, runs, error) && runs.size() == 2,
+              "a tag no case has makes no run: " + error);
+        check(!db.createRun(none, { partsId }, error, "Desktop") && db.runs(projectId, runs, error) && runs.size() == 2, "nor one that only other suites have");
+
+        // ---- cases join a run
+        int added = -1;
+        check(db.addToRun(smokeLogin.id, { login.at(0).id, login.at(1).id, percent.id, secondCase.id }, added, error) && added == 2 && db.results(smokeLogin.id, results, error)
+              && results.size() == 3, "cases join a run: not what is in it, not another project's: " + error + " " + QString::number(added));
+        check(db.results(smokeLogin.id, results, error) && results.at(1).status == "Not run", "each not run");
+        smokeLogin.finished = "2026-10-09T10:00:00Z";
+        check(db.updateRun(smokeLogin, error) && !db.addToRun(smokeLogin.id, { plain.id }, added, error) && error.startsWith("That test run is finished") && added == 0,
+              "not a run that is finished: " + error);
+        check(!db.addToRun(999999, { plain.id }, added, error) && error == "That test run is not there any more.", "nor one that is not there");
+
+        // ---- several are moved
+        check(db.loadCase(login.at(1).id, read, error), "a case, before it is moved");
+        const int revision = read.revision;
+        check(db.moveCases({ login.at(0).id, login.at(1).id }, partsId, error) && db.cases(loginId, login, error) && login.isEmpty() && db.cases(partsId, parts, error) && parts.size() == 5
+              && db.loadCase(read.id, read, error) && read.suiteId == partsId && read.revision == revision + 1 && read.key == "S-LOGIN-002" && read.steps.size() == 1,
+              "several cases go into another suite, with their keys and steps: " + error);
+        check(db.results(smoke.id, results, error) && results.size() == 2 && results.at(0).suiteName == "Parts", "and stay in their runs");
+        check(!db.moveCases({ parts.at(0).id, secondCase.id }, loginId, error) && error.startsWith("X-001 belongs to another project") && db.cases(loginId, login, error) && login.isEmpty(),
+              "all of them or none - a case stays in its project: " + error);
+        check(!db.moveCases({ parts.at(0).id }, 999999, error) && error == "That suite is not there any more.", "not into a suite that is not there");
+        check(db.moveCases({ parts.at(0).id, parts.at(1).id }, loginId, error) && db.cases(loginId, login, error) && login.size() == 2 && db.cases(partsId, parts, error), "and back: " + error);
+
+        // ---- a clone
+        QaCase copy;
+        check(db.cloneCase(login.at(0).id, copy, error) && copy.id != login.at(0).id && copy.key == "S-LOGIN-003" && copy.title == "Log in (copy)" && copy.suiteId == loginId
+              && copy.tags == "smoke, Desktop" && copy.steps.size() == 2 && copy.revision == 1, "a case once more: the next key, its steps and tags: " + error + " " + copy.key);
+        QList<QaResult> history;
+        QStringList names;
+        check(db.history(copy.id, history, names, error) && history.isEmpty() && db.history(login.at(0).id, history, names, error) && history.size() == 2
+              && db.results(smoke.id, results, error) && results.size() == 2, "not how the first went, and in no run");
+        check(!db.cloneCase(999999, copy, error) && error == "That test case is not there any more.", "what is not there is not cloned");
+        QaSuite suiteCopy, suiteCopy2;
+        QList<QaCase> cloned;
+        check(db.cloneSuite(partsId, suiteCopy, error) && suiteCopy.name == "Parts (copy)" && suiteCopy.projectId == projectId && suiteCopy.caseCount == 3
+              && db.cases(suiteCopy.id, cloned, error) && cloned.size() == 3 && cloned.at(0).key == "S-PARTS-002" && cloned.at(0).title == "Add a part" && cloned.at(0).tags == "Smoke"
+              && cloned.at(2).key == "S-PARTS-004", "a suite once more, with a clone of each case under a key of its own: " + error + " " + cloned.value(0).key);
+        check(db.loadCase(cloned.at(1).id, read, error) && read.steps.size() == 1 && read.steps.at(0).action == "Open part_list" && db.cases(partsId, parts, error) && parts.size() == 3,
+              "the clones have their steps, and the suite its cases as before");
+        check(db.cloneSuite(partsId, suiteCopy2, error) && suiteCopy2.name == "Parts (copy 2)" && db.suites(projectId, suites, error) && suites.size() == 4,
+              "a second clone has a name of its own: " + suiteCopy2.name);
+        check(!db.cloneSuite(999999, suiteCopy2, error) && error == "That suite is not there any more.", "nor a suite that is not there");
+
+        // ---- several are deleted
+        const QString source = folder.filePath("a.log");
+        {
+            QFile log(source);
+            log.open(QIODevice::WriteOnly);
+            log.write("x");
+        }
+        QaAttachment attachment;
+        check(db.attach(smoke.id, parts.at(0).id, source, "", attachment, error), "a file on a result of a case that is to go: " + error);
+        const QString attached = db.attachmentPath(attachment);
+        check(db.deleteSeveral({ parts.at(0).id, copy.id }, { suiteCopy.id }, { second.id }, error) && !db.loadCase(parts.at(0).id, read, error) && !db.loadCase(copy.id, read, error)
+              && db.suites(projectId, suites, error) && suites.size() == 3 && db.projects(projects, error) && projects.size() == 1 && !QFileInfo::exists(attached),
+              "cases, a suite and a project are deleted together, with the files of their results: " + error);
+        check(db.results(smoke.id, results, error) && results.size() == 1 && db.deleteSeveral({}, {}, {}, error), "what is left is left; nothing to delete is no error");
+
+        // ---- a database from before the tags
+        db.close();
+        bool dropped = false;
+        {
+            QSqlDatabase raw = QSqlDatabase::addDatabase("QSQLITE", "raw3");
+            raw.setDatabaseName(file);
+            if (raw.open())
+            {
+                QSqlQuery query(raw);
+                dropped = query.exec("ALTER TABLE cases DROP COLUMN tags");
+            }
+            raw.close();
+        }
+        QSqlDatabase::removeDatabase("raw3");
+        check(dropped && db.open(file, error) && db.cases(loginId, login, error) && login.size() == 2 && login.at(0).tags.isEmpty() && db.tags(projectId).isEmpty(),
+              "a database from an older version gets its tags: " + error);
+    }
+
+    QTreeWidgetItem *itemOf(QTreeWidget *tree, const QString &text)
+    {
+        for (QTreeWidgetItemIterator it(tree); *it; ++it)
+            if ((*it)->text(0).contains(text))
+                return *it;
+        return nullptr;
+    }
+
+    void findWindowTests()
+    {
+        QaDatabase db;
+        db.setUser("pat");
+        QString error;
+        QaImportCounts counts;
+        check(db.open(":memory:", error) && db.importJson(sampleScripts(), counts, error), "a database for the tree: " + error);
+        QList<QaProject> projects;
+        QList<QaSuite> suites;
+        QList<QaCase> login, parts;
+        db.projects(projects, error);
+        db.suites(projects.value(0).id, suites, error);
+        const qint64 loginId = suites.value(0).id, partsId = suites.value(1).id;
+        db.cases(loginId, login, error);
+        db.cases(partsId, parts, error);
+        QaCase tagged;
+        db.loadCase(login.at(0).id, tagged, error);
+        tagged.tags = "smoke, desktop";
+        db.saveCase(tagged, error);
+        db.loadCase(parts.at(0).id, tagged, error);
+        tagged.tags = "Smoke";
+        db.saveCase(tagged, error);
+
+        MainWindow window(&db);
+        QTreeWidget *tree = window.tree();
+        auto *search = window.findChild<QLineEdit *>("treeSearch");
+        auto *resultFilter = window.findChild<QComboBox *>("treeResult");
+        auto *priorityFilter = window.findChild<QComboBox *>("treePriority");
+        auto *tagFilter = window.findChild<QComboBox *>("treeTag");
+        auto *foundLabel = window.findChild<QLabel *>("treeFound");
+        check(search && resultFilter && priorityFilter && tagFilter && foundLabel, "what is above the tree");
+        if (!search || !resultFilter || !priorityFilter || !tagFilter || !foundLabel)
+            return;
+        QTreeWidgetItem *project = tree->topLevelItem(0);
+        check(tree->selectionMode() == QAbstractItemView::ExtendedSelection && foundLabel->isHidden() && tagFilter->count() == 3 && tagFilter->itemText(1) == "desktop"
+              && tagFilter->itemText(2) == "smoke" && project->childCount() == 2, "nothing is looked for: everything is shown, and the tags there are can be chosen");
+
+        // ---- words
+        search->setText("password");
+        project = tree->topLevelItem(0);
+        check(project->childCount() == 1 && project->child(0)->text(0) == "Login  (2 of 2)" && project->child(0)->isExpanded() && !foundLabel->isHidden()
+              && foundLabel->text() == "2 test cases found", "words: the cases that have them, their suite open, the others out of the way: " + foundLabel->text());
+        search->setText("wrong  refused");
+        project = tree->topLevelItem(0);
+        check(project->childCount() == 1 && project->child(0)->text(0) == "Login  (1 of 2)" && project->child(0)->childCount() == 1
+              && project->child(0)->child(0)->text(0).endsWith("S-LOGIN-002  A wrong password") && foundLabel->text() == "1 test case found", "every word, wherever it is");
+        search->setText("zebra");
+        check(tree->topLevelItem(0)->childCount() == 0 && foundLabel->text() == "0 test cases found", "nothing found is said");
+        search->clear();
+        project = tree->topLevelItem(0);
+        check(project->childCount() == 2 && project->child(0)->text(0) == "Login  (2)" && foundLabel->isHidden(), "and everything again");
+
+        // ---- a tag, a priority, how it went
+        tagFilter->setCurrentIndex(tagFilter->findText("smoke"));
+        project = tree->topLevelItem(0);
+        check(project->childCount() == 2 && project->child(0)->text(0) == "Login  (1 of 2)" && project->child(1)->text(0) == "Parts  (1 of 1)" && foundLabel->text() == "2 test cases found"
+              && tagFilter->currentText() == "smoke", "a tag: the cases that have it, whatever its capitals");
+        priorityFilter->setCurrentIndex(priorityFilter->findText("High"));
+        check(tree->topLevelItem(0)->childCount() == 1 && foundLabel->text() == "1 test case found" && itemOf(tree, "S-LOGIN-001"), "and a priority: both have to fit");
+        priorityFilter->setCurrentIndex(0);
+        tagFilter->setCurrentIndex(0);
+        QaRun run;
+        run.projectId = projects.value(0).id;
+        run.name = "First";
+        check(db.createRun(run, {}, error) && db.setResult(run.id, login.at(1).id, "Failed", "Let in", 0, "pat", error), "a run, and a failure: " + error);
+        window.reload();
+        resultFilter->setCurrentIndex(resultFilter->findText("Last time: Failed"));
+        check(foundLabel->text() == "1 test case found" && itemOf(tree, "S-LOGIN-002") && !itemOf(tree, "S-LOGIN-001"), "how a case went the last time");
+        resultFilter->setCurrentIndex(resultFilter->findText("Never run"));
+        check(foundLabel->text() == "2 test cases found" && !itemOf(tree, "S-LOGIN-002"), "or that it never ran");
+        resultFilter->setCurrentIndex(0);
+
+        // ---- a case's tags, on its panel
+        CasePanel *casePanel = window.casePanel();
+        auto *tags = casePanel->findChild<QLineEdit *>("caseTags");
+        auto *save = casePanel->findChild<QPushButton *>("caseSave");
+        check(tags && save && !tags->isEnabled(), "the tags of a case");
+        if (!tags || !save)
+            return;
+        check(window.selectCase("S-LOGIN-001") && tags->isEnabled() && tags->text() == "smoke, desktop", "are shown with it");
+        window.selectCase("S-LOGIN-002");
+        tags->setText(" License, license ,phone");
+        check(save->isEnabled(), "a tag is a change");
+        save->click();
+        QaCase stored;
+        check(db.loadCase(login.at(1).id, stored, error) && stored.tags == "License, phone" && tags->text() == "License, phone" && tagFilter->count() == 5
+              && tagFilter->findText("License") > 0, "stored tidied, and there to filter by: " + stored.tags);
+
+        // ---- several at once
+        QTreeWidgetItem *one = itemOf(tree, "S-LOGIN-001");
+        QTreeWidgetItem *two = itemOf(tree, "S-LOGIN-002");
+        tree->setCurrentItem(one);
+        two->setSelected(true);
+        check(window.selectedCaseIds().size() == 2, "two cases are selected");
+        check(window.moveSelectedTo(partsId).isEmpty() && itemOf(tree, "Login  (0)") && itemOf(tree, "Parts  (3)") && itemOf(tree, "Parts  (3)")->isExpanded()
+              && db.cases(partsId, parts, error) && parts.size() == 3, "and moved to another suite together");
+        tree->setCurrentItem(itemOf(tree, "Parts  (3)"));
+        check(window.selectedCaseIds().size() == 3 && window.selectedCaseIds(false).isEmpty(), "a suite stands for its cases");
+        // Looked for, a suite stands for what is shown of it.
+        search->setText("password");
+        tree->setCurrentItem(itemOf(tree, "Parts  (2 of 3)"));
+        check(window.selectedCaseIds().size() == 2, "for those that are shown, while something is looked for");
+        check(window.moveSelectedTo(loginId).isEmpty(), "which go back");
+        search->clear();
+        check(itemOf(tree, "Login  (2)") && itemOf(tree, "Parts  (1)"), "to where they were");
+
+        // ---- a clone
+        tree->setCurrentItem(itemOf(tree, "S-PARTS-001"));
+        check(window.cloneSelected().isEmpty() && tree->currentItem() && tree->currentItem()->text(0) == "S-PARTS-002  Add a part (copy)" && itemOf(tree, "Parts  (2)")
+              && casePanel->caseId() != 0 && tags->text() == "Smoke", "a case is cloned, and its clone selected: " + (tree->currentItem() ? tree->currentItem()->text(0) : QString()));
+        // ... which is in no run yet: it joins one.
+        RunPanel *runs = window.runPanel();
+        auto *table = runs->findChild<QTableWidget *>("runResults");
+        int added = -1;
+        check(table && table->rowCount() == 3 && window.addSelectedToRun(run.id, &added).isEmpty() && added == 1 && table->rowCount() == 4, "the selected case joins a run");
+        tree->setCurrentItem(itemOf(tree, "Login  (2)"));
+        itemOf(tree, "S-PARTS-002")->setSelected(true);
+        check(window.addSelectedToRun(run.id, &added).isEmpty() && added == 0 && table->rowCount() == 4, "what is in it already is not there twice");
+        tree->setCurrentItem(itemOf(tree, "Parts  (2)"));
+        check(window.cloneSelected().isEmpty() && tree->currentItem() && tree->currentItem()->text(0) == "Parts (copy)  (2)" && itemOf(tree, "S-PARTS-003")
+              && itemOf(tree, "S-PARTS-004"), "a suite is cloned with its cases");
+        tree->setCurrentItem(tree->topLevelItem(0));
+        check(window.cloneSelected() == "Select a test case or a suite to clone.", "a project is not");
+
+        // ---- several are deleted, after one question
+        QAction *deleteAction = nullptr;
+        for (QAction *action : window.findChildren<QAction *>())
+            if (action->text() == "&Delete...")
+                deleteAction = action;
+        tree->setCurrentItem(itemOf(tree, "Parts (copy)"));
+        itemOf(tree, "S-PARTS-002")->setSelected(true);
+        itemOf(tree, "S-PARTS-003")->setSelected(true);
+        check(deleteAction && deleteAction->isEnabled(), "Delete, with a suite, one of its cases and another case selected");
+        if (!deleteAction)
+            return;
+        deleteAction->trigger();
+        auto *box = window.findChild<QMessageBox *>("deleteBox");
+        check(box && box->text() == "Delete what is selected: 1 test case, 1 suite with all 2 of their test cases?" && box->informativeText().contains("This cannot be undone"),
+              "one question says all of it: " + (box ? box->text() : QString()));
+        if (!box)
+            return;
+        box->button(QMessageBox::Cancel)->click();
+        check(itemOf(tree, "Parts (copy)") && itemOf(tree, "S-PARTS-002"), "Cancel deletes nothing");
+        tree->setCurrentItem(itemOf(tree, "Parts (copy)"));
+        itemOf(tree, "S-PARTS-002")->setSelected(true);
+        deleteAction->trigger();
+        box = nullptr;
+        for (QMessageBox *candidate : window.findChildren<QMessageBox *>("deleteBox"))
+            if (candidate->isVisible() || !candidate->testAttribute(Qt::WA_WState_Hidden))
+                box = candidate;
+        if (box)
+            box->button(QMessageBox::Yes)->click();
+        check(!itemOf(tree, "Parts (copy)") && !itemOf(tree, "S-PARTS-002") && !itemOf(tree, "S-PARTS-003") && itemOf(tree, "Parts  (1)") && itemOf(tree, "Login  (2)")
+              && table->rowCount() == 3 && casePanel->caseId() == 0, "Delete takes them all, and what was in a run goes from it");
+        // One alone is asked about as before.
+        tree->setCurrentItem(itemOf(tree, "S-PARTS-001"));
+        deleteAction->trigger();
+        box = nullptr;
+        for (QMessageBox *candidate : window.findChildren<QMessageBox *>("deleteBox"))
+            if (!candidate->testAttribute(Qt::WA_WState_Hidden))
+                box = candidate;
+        check(box && box->text().startsWith("Delete the test case \"") && box->text().contains("S-PARTS-001"), "one case is asked about by its name: " + (box ? box->text() : QString()));
+        if (box)
+            box->button(QMessageBox::Cancel)->click();
+
+        // ---- a run of a tag
+        check(runs->createRun("Smoke", "", "pat", {}, error, QString(), "smoke") && table->rowCount() == 2 && table->item(0, 1)->text() == "S-LOGIN-001"
+              && table->item(1, 1)->text() == "S-PARTS-001", "a run of the cases with a tag: " + error);
+        check(!runs->createRun("None", "", "pat", {}, error, QString(), "nothing") && error.contains("has the tag \"nothing\""), "a tag no case has: " + error);
+        auto *newRun = runs->findChild<QPushButton *>("newRun");
+        if (newRun)
+            newRun->click();
+        auto *dialog = runs->findChild<QDialog *>("newRunDialog");
+        auto *runTag = dialog ? dialog->findChild<QComboBox *>("runTag") : nullptr;
+        check(runTag && runTag->isEnabled() && runTag->count() == 5 && runTag->itemText(0) == "Every test case" && runTag->findText("smoke") > 0,
+              "New Run offers the project's tags");
+        if (dialog)
+            dialog->reject();
+    }
 }
 
 int main(int argc, char *argv[])
@@ -1237,6 +1607,8 @@ int main(int argc, char *argv[])
     windowTests();
     fastTests();
     fastWindowTests();
+    findTests();
+    findWindowTests();
 
     QTextStream out(stdout);
     if (g_failures == 0)

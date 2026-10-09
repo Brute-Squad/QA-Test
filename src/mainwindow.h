@@ -10,6 +10,8 @@
 
 class CasePanel;
 class QAction;
+class QComboBox;
+class QLineEdit;
 class QLabel;
 class QTabWidget;
 class QLabel;
@@ -70,6 +72,15 @@ public:
     RunPanel *runPanel() const { return m_runs; }
     bool selectCase(const QString &key);
 
+    // ---- finding and organising: what the menus do, once their question is answered.
+    // Each says why not ("" = done).
+    // The selected cases - and, `withSuites`, the cases that are shown of the selected suites.
+    QList<qint64> selectedCaseIds(bool withSuites = true) const;
+    QString moveSelectedTo(qint64 suiteId);
+    QString deleteSelectedNow();
+    QString addSelectedToRun(qint64 runId, int *added = nullptr);
+    QString cloneSelected();
+
 public slots:
     void reload();
 
@@ -102,6 +113,10 @@ private:
     void newSuite();
     void newCase();
     void renameSelected();
+    void askMove();
+    void askAddToRun();
+    QList<qint64> selectedIds(Kind kind) const;
+    void refill();
     void editComponents();
     void deleteSelected();
     void askText(const QString &title, const QString &label, const QString &text, std::function<bool(const QString &, QString &)> store);
@@ -128,6 +143,17 @@ private:
     QAction *m_newSuite = nullptr;
     QAction *m_newCase = nullptr;
     QAction *m_rename = nullptr;
+    QAction *m_move = nullptr;
+    QAction *m_addToRun = nullptr;
+    QAction *m_clone = nullptr;
+
+    // Above the tree: words to find, and what to show - by how a case went the last
+    // time, its priority, a tag.
+    QLineEdit *m_search = nullptr;
+    QComboBox *m_resultFilter = nullptr;
+    QComboBox *m_priorityFilter = nullptr;
+    QComboBox *m_tagFilter = nullptr;
+    QLabel    *m_found = nullptr;
     QAction *m_components = nullptr;
     QAction *m_delete = nullptr;
     QAction *m_export = nullptr;

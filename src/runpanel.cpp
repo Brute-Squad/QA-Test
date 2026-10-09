@@ -607,7 +607,8 @@ void RunPanel::store(const QString &status)
     emit resultStored();
 }
 
-bool RunPanel::createRun(const QString &name, const QString &build, const QString &tester, const QList<qint64> &suiteIds, QString &error, const QString &builds)
+bool RunPanel::createRun(const QString &name, const QString &build, const QString &tester, const QList<qint64> &suiteIds, QString &error, const QString &builds,
+                         const QString &tag)
 {
     QaRun run;
     run.projectId = m_projectId;
@@ -615,7 +616,7 @@ bool RunPanel::createRun(const QString &name, const QString &build, const QStrin
     run.build = build;
     run.tester = tester;
     run.builds = builds;
-    if (!m_database->createRun(run, suiteIds, error))
+    if (!m_database->createRun(run, suiteIds, error, tag))
         return false;
     // Who tests here is who said so last; no name is no change.
     if (!tester.trimmed().isEmpty())
@@ -684,6 +685,14 @@ void RunPanel::askForRun()
         item->setCheckState(suite.caseCount > 0 ? Qt::Checked : Qt::Unchecked);
     }
 
+    // Of every case of those suites, or only of those with one tag: a smoke run.
+    auto *tag = new QComboBox(dialog);
+    tag->setObjectName(QStringLiteral("runTag"));
+    tag->addItem(QStringLiteral("Every test case"));
+    tag->addItems(m_database->tags(m_projectId));
+    tag->setEnabled(tag->count() > 1);
+    tag->setToolTip(QStringLiteral("A test case's tags are on the Test Case tab."));
+
     auto *problem = new QLabel(dialog);
     problem->setWordWrap(true);
     problem->hide();
@@ -697,6 +706,7 @@ void RunPanel::askForRun()
         form->addRow(QStringLiteral("%1:").arg(components.at(i)), componentEdits.at(i));
     form->addRow(QStringLiteral("Tester:"), tester);
     form->addRow(QStringLiteral("Suites:"), suites);
+    form->addRow(QStringLiteral("Only tagged:"), tag);
     auto *layout = new QVBoxLayout(dialog);
     layout->addLayout(form);
     layout->addWidget(problem);
@@ -704,7 +714,7 @@ void RunPanel::askForRun()
     dialog->resize(520, 460);
 
     connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
-    connect(buttons, &QDialogButtonBox::accepted, dialog, [this, dialog, name, build, tester, suites, problem, components, componentEdits]() {
+    connect(buttons, &QDialogButtonBox::accepted, dialog, [this, dialog, name, build, tester, suites, problem, components, componentEdits, tag]() {
         QStringList builds;
         for (int i = 0; i < componentEdits.size(); ++i)
             if (!componentEdits.at(i)->text().trimmed().isEmpty())
@@ -716,7 +726,7 @@ void RunPanel::askForRun()
         QString error;
         if (chosen.isEmpty())
             error = QStringLiteral("Tick the suites to run.");
-        else if (createRun(name->text(), build->text(), tester->text(), chosen, error, builds.join(QLatin1Char('\n'))))
+        else if (createRun(name->text(), build->text(), tester->text(), chosen, error, builds.join(QLatin1Char('\n')), tag->currentIndex() > 0 ? tag->currentText() : QString()))
         {
             dialog->accept();
             return;

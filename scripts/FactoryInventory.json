@@ -9,6 +9,7 @@
       "cases": [
         {
           "key": "FI-SETUP-001",
+          "tags": ["smoke"],
           "title": "Install the server on a clean PC",
           "priority": "High",
           "area": "Installer",
@@ -193,6 +194,7 @@
       "cases": [
         {
           "key": "FI-USERS-001",
+          "tags": ["smoke"],
           "title": "A wrong password is refused and slows down",
           "priority": "High",
           "area": "Desktop",
@@ -335,6 +337,7 @@
       "cases": [
         {
           "key": "FI-PARTS-001",
+          "tags": ["smoke"],
           "title": "Add, change and delete a part",
           "priority": "High",
           "area": "Desktop and phone",
@@ -533,6 +536,7 @@
       "cases": [
         {
           "key": "FI-PROD-001",
+          "tags": ["smoke"],
           "title": "A product and its parts",
           "priority": "High",
           "area": "Desktop and phone",
@@ -679,6 +683,7 @@
       "cases": [
         {
           "key": "FI-PSTOCK-001",
+          "tags": ["smoke"],
           "title": "Make products of their parts",
           "priority": "High",
           "area": "Desktop and phone",
@@ -803,6 +808,7 @@
       "cases": [
         {
           "key": "FI-ASM-001",
+          "tags": ["smoke"],
           "title": "An assembly template and what a build costs",
           "priority": "High",
           "area": "Desktop and phone",
@@ -959,6 +965,7 @@
       "cases": [
         {
           "key": "FI-MACH-001",
+          "tags": ["smoke"],
           "title": "Take a machine offline and bring it back",
           "priority": "High",
           "area": "Desktop and phone",
@@ -1101,6 +1108,7 @@
       "cases": [
         {
           "key": "FI-ORD-001",
+          "tags": ["smoke"],
           "title": "An order with lines and a total",
           "priority": "High",
           "area": "Desktop and phone",
@@ -1261,6 +1269,7 @@
       "cases": [
         {
           "key": "FI-BUY-001",
+          "tags": ["smoke"],
           "title": "Place a purchase order and receive it in two deliveries",
           "priority": "High",
           "area": "Desktop and phone",
@@ -1337,6 +1346,7 @@
       "cases": [
         {
           "key": "FI-WASTE-001",
+          "tags": ["smoke"],
           "title": "Waste with a material takes stock and costs",
           "priority": "Medium",
           "area": "Desktop and phone",
@@ -1387,6 +1397,7 @@
       "cases": [
         {
           "key": "FI-MONEY-001",
+          "tags": ["smoke"],
           "title": "Choose the currency",
           "priority": "High",
           "area": "Desktop and phone",
@@ -1485,6 +1496,7 @@
       "cases": [
         {
           "key": "FI-MULTI-001",
+          "tags": ["smoke"],
           "title": "Delete several rows with one question",
           "priority": "High",
           "area": "Desktop",
@@ -1601,6 +1613,7 @@
       "cases": [
         {
           "key": "FI-PHONE-001",
+          "tags": ["smoke"],
           "title": "Browse, add and change a record",
           "priority": "High",
           "area": "Phone",
@@ -1713,6 +1726,7 @@
       "cases": [
         {
           "key": "FI-SRV-001",
+          "tags": ["smoke"],
           "title": "Automatic backups and a backup by hand",
           "priority": "High",
           "area": "Desktop",
@@ -1843,6 +1857,7 @@
       "cases": [
         {
           "key": "FI-UI-001",
+          "tags": ["smoke"],
           "title": "Light and dark",
           "priority": "Medium",
           "area": "Desktop",

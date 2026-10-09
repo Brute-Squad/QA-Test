@@ -52,8 +52,9 @@ public:
     // Make a run without asking (what New Run... does once its dialog is
     // answered): of those suites, or of every suite when none is named.
     // `builds`: the build of each component, a line each ("Server: 0.2.0, built ...").
+    // `tag`: only the cases that have that tag.
     bool createRun(const QString &name, const QString &build, const QString &tester, const QList<qint64> &suiteIds, QString &error,
-                   const QString &builds = QString());
+                   const QString &builds = QString(), const QString &tag = QString());
     // A new run of what failed or was blocked in the run that is shown.
     bool createRerun(const QString &name, QString &error);
     // The selected cases are that tester's in this run ("" = nobody's).

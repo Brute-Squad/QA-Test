@@ -338,6 +338,7 @@ bool QaDatabase::createTables(QString &error)
     // in the same file: it does not know the columns, and they have their defaults.)
     return addMissingColumn(QStringLiteral("cases"), QStringLiteral("revision"), QStringLiteral("INTEGER NOT NULL DEFAULT 1"), error)
         && addMissingColumn(QStringLiteral("cases"), QStringLiteral("changed_by"), QStringLiteral("TEXT NOT NULL DEFAULT ''"), error)
+        && addMissingColumn(QStringLiteral("cases"), QStringLiteral("tags"), QStringLiteral("TEXT NOT NULL DEFAULT ''"), error)
         && addMissingColumn(QStringLiteral("results"), QStringLiteral("assigned"), QStringLiteral("TEXT NOT NULL DEFAULT ''"), error)
         && addMissingColumn(QStringLiteral("runs"), QStringLiteral("builds"), QStringLiteral("TEXT NOT NULL DEFAULT ''"), error)
         && addMissingColumn(QStringLiteral("projects"), QStringLiteral("components"), QStringLiteral("TEXT NOT NULL DEFAULT ''"), error);
@@ -502,7 +503,7 @@ bool QaDatabase::cases(qint64 suiteId, QList<QaCase> &list, QString &error)
     QSqlQuery query;
     // With its result in the newest run that has run it.
     if (!exec(QStringLiteral("SELECT c.id, c.suite_id, c.key, c.title, c.priority, c.area, c.preconditions, c.notes, "
-                             "COALESCE((SELECT r.status FROM results r WHERE r.case_id = c.id AND r.executed <> '' ORDER BY r.executed DESC LIMIT 1), '') "
+                             "COALESCE((SELECT r.status FROM results r WHERE r.case_id = c.id AND r.executed <> '' ORDER BY r.executed DESC LIMIT 1), ''), c.tags "
                              "FROM cases c WHERE c.suite_id = ? ORDER BY c.key, c.id"), { suiteId }, error, &query))
         return false;
     while (query.next())
@@ -517,6 +518,7 @@ bool QaDatabase::cases(qint64 suiteId, QList<QaCase> &list, QString &error)
         testCase.preconditions = query.value(6).toString();
         testCase.notes = query.value(7).toString();
         testCase.lastStatus = query.value(8).toString();
+        testCase.tags = query.value(9).toString();
         list << testCase;
     }
     return true;
@@ -525,7 +527,7 @@ bool QaDatabase::cases(qint64 suiteId, QList<QaCase> &list, QString &error)
 bool QaDatabase::loadCase(qint64 id, QaCase &testCase, QString &error)
 {
     QSqlQuery query;
-    if (!exec(QStringLiteral("SELECT id, suite_id, key, title, priority, area, preconditions, notes, revision, changed_by, updated FROM cases WHERE id = ?"),
+    if (!exec(QStringLiteral("SELECT id, suite_id, key, title, priority, area, preconditions, notes, revision, changed_by, updated, tags FROM cases WHERE id = ?"),
               { id }, error, &query))
         return false;
     if (!query.next())
@@ -545,6 +547,7 @@ bool QaDatabase::loadCase(qint64 id, QaCase &testCase, QString &error)
     testCase.revision = query.value(8).toInt();
     testCase.changedBy = query.value(9).toString();
     testCase.updated = query.value(10).toString();
+    testCase.tags = query.value(11).toString();
 
     if (!exec(QStringLiteral("SELECT action, expected FROM steps WHERE case_id = ? ORDER BY position, id"), { id }, error, &query))
         return false;
@@ -565,6 +568,7 @@ bool QaDatabase::saveCase(QaCase &testCase, QString &error, bool overwrite)
     }
     if (!priorities().contains(testCase.priority))
         testCase.priority = QStringLiteral("Medium");
+    testCase.tags = tagList(testCase.tags).join(QStringLiteral(", "));
 
     QSqlQuery query;
     if (!exec(QStringLiteral("SELECT project_id FROM suites WHERE id = ?"), { testCase.suiteId }, error, &query))
@@ -583,14 +587,15 @@ bool QaDatabase::saveCase(QaCase &testCase, QString &error, bool overwrite)
     const int expected = overwrite ? 0 : testCase.revision;
     const QString when = now();
     const bool stored = isNew
-        ? exec(QStringLiteral("INSERT INTO cases (suite_id, project_id, key, title, priority, area, preconditions, notes, updated, revision, changed_by) "
-                              "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)"),
-               { testCase.suiteId, projectId, testCase.key, testCase.title, testCase.priority, testCase.area, testCase.preconditions, testCase.notes, when, m_user },
+        ? exec(QStringLiteral("INSERT INTO cases (suite_id, project_id, key, title, priority, area, preconditions, notes, updated, revision, changed_by, tags) "
+                              "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)"),
+               { testCase.suiteId, projectId, testCase.key, testCase.title, testCase.priority, testCase.area, testCase.preconditions, testCase.notes, when, m_user,
+                 testCase.tags },
                error, &query)
         : exec(QStringLiteral("UPDATE cases SET suite_id = ?, project_id = ?, key = ?, title = ?, priority = ?, area = ?, preconditions = ?, notes = ?, updated = ?, "
-                              "revision = revision + 1, changed_by = ? WHERE id = ? AND (? = 0 OR revision = ?)"),
+                              "revision = revision + 1, changed_by = ?, tags = ? WHERE id = ? AND (? = 0 OR revision = ?)"),
                { testCase.suiteId, projectId, testCase.key, testCase.title, testCase.priority, testCase.area, testCase.preconditions, testCase.notes, when, m_user,
-                 testCase.id, expected, expected }, error, &query);
+                 testCase.tags, testCase.id, expected, expected }, error, &query);
     if (!stored)
     {
         if (error.contains(QLatin1String("UNIQUE"), Qt::CaseInsensitive))
@@ -648,6 +653,218 @@ bool QaDatabase::deleteCase(qint64 id, QString &error)
     if (!exec(QStringLiteral("DELETE FROM cases WHERE id = ?"), { id }, error))
         return false;
     removeFiles(files);
+    return true;
+}
+
+// ---- finding and organising ------------------------------------------------------------------------
+
+QStringList QaDatabase::tagList(const QString &tags)
+{
+    QStringList list;
+    for (const QString &part : tags.split(QLatin1Char(',')))
+        if (!part.trimmed().isEmpty() && !list.contains(part.trimmed(), Qt::CaseInsensitive))
+            list << part.simplified();
+    return list;
+}
+
+QStringList QaDatabase::tags(qint64 projectId)
+{
+    QStringList all;
+    QString error;
+    QSqlQuery query;
+    if (exec(QStringLiteral("SELECT tags FROM cases WHERE project_id = ? AND tags <> ''"), { projectId }, error, &query))
+        while (query.next())
+            for (const QString &tag : tagList(query.value(0).toString()))
+                if (!all.contains(tag, Qt::CaseInsensitive))
+                    all << tag;
+    all.sort(Qt::CaseInsensitive);
+    return all;
+}
+
+bool QaDatabase::search(qint64 projectId, const QString &text, QList<qint64> &caseIds, QString &error)
+{
+    caseIds.clear();
+    QString sql = QStringLiteral("SELECT c.id FROM cases c WHERE (? = 0 OR c.project_id = ?)");
+    QVariantList values { projectId, projectId };
+    for (const QString &word : text.simplified().split(QLatin1Char(' '), Qt::SkipEmptyParts))
+    {
+        // The word as it is, wherever it stands: % and _ mean themselves.
+        QString pattern = word;
+        pattern.replace(QLatin1Char('\\'), QStringLiteral("\\\\")).replace(QLatin1Char('%'), QStringLiteral("\\%")).replace(QLatin1Char('_'), QStringLiteral("\\_"));
+        pattern = QLatin1Char('%') + pattern + QLatin1Char('%');
+        sql += QStringLiteral(" AND (c.key LIKE ? ESCAPE '\\' OR c.title LIKE ? ESCAPE '\\' OR c.preconditions LIKE ? ESCAPE '\\' OR c.notes LIKE ? ESCAPE '\\' "
+                              "OR c.tags LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM steps s WHERE s.case_id = c.id AND (s.action LIKE ? ESCAPE '\\' OR s.expected LIKE ? ESCAPE '\\')))");
+        for (int i = 0; i < 7; ++i)
+            values << pattern;
+    }
+    QSqlQuery query;
+    if (!exec(sql + QStringLiteral(" ORDER BY c.key"), values, error, &query))
+        return false;
+    while (query.next())
+        caseIds << query.value(0).toLongLong();
+    return true;
+}
+
+bool QaDatabase::moveCases(const QList<qint64> &caseIds, qint64 suiteId, QString &error)
+{
+    QSqlQuery query;
+    if (!exec(QStringLiteral("SELECT project_id, name FROM suites WHERE id = ?"), { suiteId }, error, &query))
+        return false;
+    if (!query.next())
+    {
+        error = QStringLiteral("That suite is not there any more.");
+        return false;
+    }
+    const qint64 projectId = query.value(0).toLongLong();
+    Transaction transaction(QSqlDatabase::database(m_connection, false));
+    for (const qint64 id : caseIds)
+    {
+        if (!exec(QStringLiteral("UPDATE cases SET suite_id = ?, updated = ?, revision = revision + 1, changed_by = ? WHERE id = ? AND project_id = ?"),
+                  { suiteId, now(), m_user, id, projectId }, error, &query))
+            return false;
+        if (query.numRowsAffected() != 1)
+        {
+            QSqlQuery which;
+            QString ignored;
+            const bool there = exec(QStringLiteral("SELECT key FROM cases WHERE id = ?"), { id }, ignored, &which) && which.next();
+            error = there ? QStringLiteral("%1 belongs to another project: a test case is moved within its project. Nothing was moved.").arg(which.value(0).toString())
+                          : QStringLiteral("One of the test cases is not there any more. Nothing was moved.");
+            return false;
+        }
+    }
+    if (!transaction.commit())
+    {
+        error = QStringLiteral("The test cases could not be moved.");
+        return false;
+    }
+    return true;
+}
+
+bool QaDatabase::deleteSeveral(const QList<qint64> &caseIds, const QList<qint64> &suiteIds, const QList<qint64> &projectIds, QString &error)
+{
+    // The files that go with their results: read before, removed once everything is gone.
+    QStringList files;
+    for (const qint64 id : caseIds)
+        files << attachmentFiles(QStringLiteral("case_id = ?"), { id });
+    for (const qint64 id : suiteIds)
+        files << attachmentFiles(QStringLiteral("case_id IN (SELECT id FROM cases WHERE suite_id = ?)"), { id });
+    for (const qint64 id : projectIds)
+        files << attachmentFiles(QStringLiteral("run_id IN (SELECT id FROM runs WHERE project_id = ?)"), { id });
+    {
+        Transaction transaction(QSqlDatabase::database(m_connection, false));
+        for (const qint64 id : caseIds)
+            if (!exec(QStringLiteral("DELETE FROM cases WHERE id = ?"), { id }, error))
+                return false;
+        for (const qint64 id : suiteIds)
+            if (!exec(QStringLiteral("DELETE FROM suites WHERE id = ?"), { id }, error))
+                return false;
+        for (const qint64 id : projectIds)
+            if (!exec(QStringLiteral("DELETE FROM projects WHERE id = ?"), { id }, error))
+                return false;
+        if (!transaction.commit())
+        {
+            error = QStringLiteral("Nothing was deleted: it could not be stored.");
+            return false;
+        }
+    }
+    removeFiles(files);
+    return true;
+}
+
+bool QaDatabase::cloneCase(qint64 id, QaCase &copy, QString &error)
+{
+    if (!loadCase(id, copy, error))
+        return false;
+    copy.id = 0;
+    copy.revision = 0;
+    copy.lastStatus.clear();
+    copy.key = nextKey(copy.suiteId);
+    copy.title = (copy.title + QStringLiteral(" (copy)")).right(200);
+    return saveCase(copy, error);
+}
+
+bool QaDatabase::cloneSuite(qint64 id, QaSuite &copy, QString &error)
+{
+    QSqlQuery query;
+    if (!exec(QStringLiteral("SELECT project_id, name, description FROM suites WHERE id = ?"), { id }, error, &query))
+        return false;
+    if (!query.next())
+    {
+        error = QStringLiteral("That suite is not there any more.");
+        return false;
+    }
+    copy = QaSuite();
+    copy.projectId = query.value(0).toLongLong();
+    copy.description = query.value(2).toString();
+    // "<name> (copy)", or "(copy 2)" ... while that is taken.
+    const QString name = query.value(1).toString();
+    bool added = false;
+    for (int number = 1; number < 100 && !added; ++number)
+    {
+        copy.name = number == 1 ? name + QStringLiteral(" (copy)") : QStringLiteral("%1 (copy %2)").arg(name).arg(number);
+        added = addSuite(copy, error);
+        if (!added && !error.contains(QLatin1String("already")))
+            return false;
+    }
+    if (!added)
+        return false;
+
+    QList<QaCase> list;
+    bool ok = cases(id, list, error);
+    for (int i = 0; ok && i < list.size(); ++i)
+    {
+        QaCase testCase;
+        ok = loadCase(list.at(i).id, testCase, error);
+        if (!ok)
+            break;
+        testCase.id = 0;
+        testCase.revision = 0;
+        testCase.suiteId = copy.id;
+        // The next key that is free in the project, as the suite's keys go.
+        testCase.key = nextKey(id);
+        ok = saveCase(testCase, error);
+    }
+    if (!ok)
+    {
+        // All of it or nothing.
+        QString ignored;
+        deleteSuite(copy.id, ignored);
+        copy = QaSuite();
+        return false;
+    }
+    copy.caseCount = int(list.size());
+    return true;
+}
+
+bool QaDatabase::addToRun(qint64 runId, const QList<qint64> &caseIds, int &added, QString &error)
+{
+    added = 0;
+    QSqlQuery query;
+    if (!exec(QStringLiteral("SELECT project_id, finished FROM runs WHERE id = ?"), { runId }, error, &query))
+        return false;
+    if (!query.next())
+    {
+        error = QStringLiteral("That test run is not there any more.");
+        return false;
+    }
+    if (!query.value(1).toString().isEmpty())
+    {
+        error = QStringLiteral("That test run is finished: reopen it to add test cases.");
+        return false;
+    }
+    const qint64 projectId = query.value(0).toLongLong();
+    Transaction transaction(QSqlDatabase::database(m_connection, false));
+    for (const qint64 id : caseIds)
+    {
+        if (!exec(QStringLiteral("INSERT OR IGNORE INTO results (run_id, case_id) SELECT ?, id FROM cases WHERE id = ? AND project_id = ?"), { runId, id, projectId }, error, &query))
+            return false;
+        added += qMax(0, query.numRowsAffected());
+    }
+    if (!transaction.commit())
+    {
+        error = QStringLiteral("The test cases could not be added.");
+        return false;
+    }
     return true;
 }
 
@@ -723,8 +940,20 @@ bool QaDatabase::runs(qint64 projectId, QList<QaRun> &list, QString &error)
     return true;
 }
 
-bool QaDatabase::createRun(QaRun &run, const QList<qint64> &suiteIds, QString &error)
+bool QaDatabase::createRun(QaRun &run, const QList<qint64> &suiteIds, QString &error, const QString &tag)
 {
+    // Only the cases that have the tag: as a word of their own among their tags, whatever the capitals.
+    QList<qint64> tagged;
+    if (!tag.trimmed().isEmpty())
+    {
+        QSqlQuery cases;
+        if (!exec(QStringLiteral("SELECT id, tags FROM cases WHERE project_id = ? AND tags <> ''"), { run.projectId }, error, &cases))
+            return false;
+        while (cases.next())
+            if (tagList(cases.value(1).toString()).contains(tag.trimmed(), Qt::CaseInsensitive))
+                tagged << cases.value(0).toLongLong();
+    }
+    const bool byTag = !tag.trimmed().isEmpty();
     run.name = run.name.trimmed();
     if (run.name.isEmpty())
     {
@@ -742,14 +971,39 @@ bool QaDatabase::createRun(QaRun &run, const QList<qint64> &suiteIds, QString &e
 
     // Its cases: those of the suites named, or of every suite of the project.
     int cases = 0;
-    if (suiteIds.isEmpty())
+    if (byTag)
+    {
+        for (const qint64 caseId : std::as_const(tagged))
+        {
+            // Of the suites named, if some are.
+            if (!exec(QStringLiteral("INSERT INTO results (run_id, case_id) SELECT ?, id FROM cases WHERE id = ? AND project_id = ?"), { id, caseId, run.projectId }, error, &query))
+                return false;
+            cases += query.numRowsAffected();
+        }
+        if (!suiteIds.isEmpty())
+        {
+            QStringList marks;
+            QVariantList values { id };
+            for (const qint64 suiteId : suiteIds)
+            {
+                marks << QStringLiteral("?");
+                values << suiteId;
+            }
+            if (!exec(QStringLiteral("DELETE FROM results WHERE run_id = ? AND case_id NOT IN (SELECT id FROM cases WHERE suite_id IN (%1))").arg(marks.join(QLatin1Char(','))),
+                      values, error, &query))
+                return false;
+            cases -= query.numRowsAffected();
+        }
+    }
+    else if (suiteIds.isEmpty())
     {
         if (!exec(QStringLiteral("INSERT INTO results (run_id, case_id) SELECT ?, id FROM cases WHERE project_id = ?"), { id, run.projectId }, error, &query))
             return false;
         cases = query.numRowsAffected();
     }
-    for (const qint64 suiteId : suiteIds)
+    for (int i = 0; !byTag && i < suiteIds.size(); ++i)
     {
+        const qint64 suiteId = suiteIds.at(i);
         if (!exec(QStringLiteral("INSERT INTO results (run_id, case_id) SELECT ?, id FROM cases WHERE suite_id = ? AND project_id = ?"),
                   { id, suiteId, run.projectId }, error, &query))
             return false;
@@ -757,7 +1011,8 @@ bool QaDatabase::createRun(QaRun &run, const QList<qint64> &suiteIds, QString &e
     }
     if (cases == 0)
     {
-        error = QStringLiteral("There are no test cases to run: the run was not made.");
+        error = byTag ? QStringLiteral("No test case of those suites has the tag \"%1\": the run was not made.").arg(tag.trimmed())
+                      : QStringLiteral("There are no test cases to run: the run was not made.");
         return false;
     }
     if (!transaction.commit())
@@ -1163,6 +1418,9 @@ bool QaDatabase::importJson(const QJsonObject &scripts, QaImportCounts &counts, 
             testCase.area = caseJson.value(QLatin1String("area")).toString();
             testCase.preconditions = caseJson.value(QLatin1String("preconditions")).toString();
             testCase.notes = caseJson.value(QLatin1String("notes")).toString();
+            QStringList caseTags;
+            for (const QJsonValue &tagValue : caseJson.value(QLatin1String("tags")).toArray())
+                caseTags << tagValue.toString();
             for (const QJsonValue &stepValue : caseJson.value(QLatin1String("steps")).toArray())
                 testCase.steps << QaStep { stepValue.toObject().value(QLatin1String("action")).toString(),
                                            stepValue.toObject().value(QLatin1String("expected")).toString() };
@@ -1193,6 +1451,10 @@ bool QaDatabase::importJson(const QJsonObject &scripts, QaImportCounts &counts, 
                 return false;
             if (!known)
                 testCase.id = query.lastInsertId().toLongLong();
+            // Its tags, where the file says any: one that says none leaves those the case has.
+            if (caseJson.contains(QLatin1String("tags"))
+                && !exec(QStringLiteral("UPDATE cases SET tags = ? WHERE id = ?"), { tagList(caseTags.join(QLatin1Char(','))).join(QStringLiteral(", ")), testCase.id }, error))
+                return false;
             if (!exec(QStringLiteral("DELETE FROM steps WHERE case_id = ?"), { testCase.id }, error))
                 return false;
             int position = 0;
@@ -1250,11 +1512,14 @@ bool QaDatabase::exportJson(qint64 projectId, QJsonObject &scripts, QString &err
             QJsonArray stepsJson;
             for (const QaStep &step : std::as_const(testCase.steps))
                 stepsJson << QJsonObject { { QStringLiteral("action"), step.action }, { QStringLiteral("expected"), step.expected } };
-            casesJson << QJsonObject {
+            QJsonObject caseJson {
                 { QStringLiteral("key"), testCase.key }, { QStringLiteral("title"), testCase.title }, { QStringLiteral("priority"), testCase.priority },
                 { QStringLiteral("area"), testCase.area }, { QStringLiteral("preconditions"), testCase.preconditions }, { QStringLiteral("notes"), testCase.notes },
                 { QStringLiteral("steps"), stepsJson },
             };
+            if (!tagList(testCase.tags).isEmpty())
+                caseJson.insert(QStringLiteral("tags"), QJsonArray::fromStringList(tagList(testCase.tags)));
+            casesJson << caseJson;
         }
         suitesJson << QJsonObject { { QStringLiteral("name"), suite.name }, { QStringLiteral("description"), suite.description }, { QStringLiteral("cases"), casesJson } };
     }

@@ -64,6 +64,7 @@ private:
     QLineEdit      *m_title = nullptr;
     QComboBox      *m_priority = nullptr;
     QComboBox      *m_area = nullptr;
+    QLineEdit      *m_tags = nullptr;
     QPlainTextEdit *m_preconditions = nullptr;
     QTableWidget   *m_steps = nullptr;
     QPlainTextEdit *m_notes = nullptr;
