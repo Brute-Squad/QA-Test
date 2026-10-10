@@ -1,6 +1,6 @@
 {
   "project": "Factory Inventory",
-  "version": "2026-10-09.2",
+  "version": "2026-10-09.3",
   "components": ["Server", "Desktop app", "Phone app"],
   "issueUrl": "https://github.com/Brute-Squad/FactoryInventory/issues/%1",
   "description": "Manual test scripts for Factory Inventory 0.2.0 Beta: the server, the desktop app and the phone app.",
@@ -704,6 +704,70 @@
             {
               "action": "Add a twenty-sixth.",
               "expected": "Refused with a sentence naming the limit of the Free edition."
+            }
+          ]
+        },
+        {
+          "key": "FI-PROD-007",
+          "title": "Change Several: the same price and stock level for several variants",
+          "priority": "Medium",
+          "area": "Desktop and phone",
+          "preconditions": "A product with at least four variants, none with a price or stock level of its own. Logged in as a user who may change products.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Desktop: select the product, open its Variants tab without pressing Edit, and select two variants with Ctrl.",
+              "expected": "Change Several... is off; its tool tip says to press Edit."
+            },
+            {
+              "action": "Press Edit on the form. Select three variants with Ctrl or Shift.",
+              "expected": "The button reads \"Change the 3 Selected...\"; Edit Variant, Delete Variant and Pictures are off."
+            },
+            {
+              "action": "Press it. Tick \"Set the retail price\", type cheap, press OK.",
+              "expected": "The dialog stays open and says why; none of the three variants has a price."
+            },
+            {
+              "action": "Type 4.50, tick \"Set the stock level\", type 12, press OK.",
+              "expected": "A box says the retail price and the stock level of 3 variants were set. The three rows show both; the fourth variant is unchanged."
+            },
+            {
+              "action": "Select two of them, Change Several..., tick only \"Set the stock level\" and leave the box empty. OK.",
+              "expected": "The stock level of the two is taken away; their price stays."
+            },
+            {
+              "action": "Phone: open the product, press Edit, Variants, Change Several.... Tick two variants, switch on \"Set the retail price\", type 5.25, press Change 2.",
+              "expected": "The page says the retail price of 2 variants was set to 5.25, and the list shows it for those two only."
+            }
+          ]
+        },
+        {
+          "key": "FI-PROD-008",
+          "title": "A variant has pictures of its own",
+          "priority": "Medium",
+          "area": "Desktop and phone",
+          "preconditions": "A product with two variants. A picture file on the PC.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Desktop: select the product, Variants tab, select one variant, press Pictures... (without Edit).",
+              "expected": "\"Images of variant ...\" opens; Import, Edit and Delete are off, and it says to press Edit on the record."
+            },
+            {
+              "action": "Close it, press Edit on the form, open Pictures... again and import the picture.",
+              "expected": "The picture is there with its name. After closing, the variant's Pictures column says 1; the other variant's is empty."
+            },
+            {
+              "action": "Open Data > Images of Selected... for the product itself.",
+              "expected": "The variant's picture is not among the product's pictures."
+            },
+            {
+              "action": "Phone: open the product, press Edit, Variants, tap that variant, press Images.",
+              "expected": "The picture is shown; Take Photo and Import are offered."
+            },
+            {
+              "action": "Desktop: delete that variant.",
+              "expected": "It is deleted without complaint (it has no stock and no order names it). Its picture is gone with it."
             }
           ]
         }
@@ -1461,6 +1525,96 @@
               "expected": "It names the parts for which no supplier is said."
             }
           ]
+        },
+        {
+          "key": "FI-BUY-004",
+          "title": "A purchase order buys finished products, by variant",
+          "priority": "High",
+          "area": "Desktop and phone",
+          "preconditions": "A supplier. A product with the variants Colour=Red and Colour=Blue; that supplier is on the product's Suppliers tab with a price of 4.50. A second product without variants. An open purchase order for that supplier.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Desktop: select the order, press Edit, open the Product Lines tab and press Add Product Line....",
+              "expected": "The dialog offers both products; nothing can be picked as a variant until a product is chosen."
+            },
+            {
+              "action": "Choose the product with variants, type 12 as the quantity, leave the variant empty and press OK.",
+              "expected": "Refused in the dialog: the product comes in variants, say which."
+            },
+            {
+              "action": "Pick Colour=Red in the variant box, leave the unit cost empty, OK.",
+              "expected": "The line is added: Colour=Red, 12, unit cost 4.50 (the supplier's price), total 54.00."
+            },
+            {
+              "action": "Add Product Line... again.",
+              "expected": "The same product is still offered. Adding Colour=Red a second time is refused (\"The order already has ...\"); Colour=Blue is accepted."
+            },
+            {
+              "action": "Add the product without variants with a unit cost typed in.",
+              "expected": "Accepted; its variant box was off."
+            },
+            {
+              "action": "Phone: open the same order and press Product Lines.",
+              "expected": "The three lines are listed, each called by product and variant, with quantity, cost and total."
+            }
+          ]
+        },
+        {
+          "key": "FI-BUY-005",
+          "title": "Receiving products puts them on the variant's shelf",
+          "priority": "High",
+          "area": "Desktop and phone",
+          "preconditions": "The order of FI-BUY-004, still open. The red variant has a stock level of 10 and no stock.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open Data > Make List....",
+              "expected": "The red variant is 10 below its level; On order is 0 and To make is 10."
+            },
+            {
+              "action": "On the order's Receiving tab press Place Order, then open the Make List again.",
+              "expected": "The tab's first column is \"Part or product\". The make list now says On order 12 and To make 0 for the red variant."
+            },
+            {
+              "action": "Try to delete the red variant on the product's Variants tab.",
+              "expected": "Refused: a purchase order is buying this variant."
+            },
+            {
+              "action": "Receive...: 5 of the red line, nothing of the others, into a place of your choice.",
+              "expected": "The red line says 5 received, 7 outstanding; the order stays Ordered."
+            },
+            {
+              "action": "Open the product's Inventory tab and its History....",
+              "expected": "A lot of 5 of Colour=Red at 4.50 in that place; the history says received, +5, \"Received on purchase order ...\"."
+            },
+            {
+              "action": "Receive...: type 8 for the red line.",
+              "expected": "Refused under the table: only 7 is outstanding."
+            },
+            {
+              "action": "Phone: open the order, Receiving, Receive, and receive everything that is outstanding.",
+              "expected": "\"Delivery received\"; the order is Received, each variant's stock is on its own shelf, and the make list's On order is 0."
+            }
+          ]
+        },
+        {
+          "key": "FI-BUY-006",
+          "title": "A product on an order that has not come in can still be deleted - and says so",
+          "priority": "Low",
+          "area": "Desktop",
+          "preconditions": "A product without stock that is on one open purchase order and on one received purchase order.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Delete the product.",
+              "expected": "The question says it will be taken out of 1 purchase order that is not received yet."
+            },
+            {
+              "action": "Confirm.",
+              "expected": "The product is gone; the open order's Product Lines no longer has it, the received order still lists its line."
+            }
+          ]
         }
       ]
     },
@@ -1999,6 +2153,28 @@
               "expected": "The app closes (or goes to the background); it does not hang."
             }
           ]
+        },
+        {
+          "key": "FI-PHONE-006",
+          "title": "The Change Several dialog fits a small screen",
+          "priority": "Medium",
+          "area": "Phone",
+          "preconditions": "A real phone, held upright. A product with at least eight variants, open for editing.",
+          "notes": "The UI tests run the phone app as a window on the PC; this is for the device.",
+          "steps": [
+            {
+              "action": "Open Variants and press Change Several....",
+              "expected": "The dialog fits the screen: the list of variants scrolls inside it, and both switches and the Change button can be reached."
+            },
+            {
+              "action": "Press Tick All, then Tick None.",
+              "expected": "The count goes to \"8 of 8\" and back to \"0 of 8\"; Change is off while nothing is ticked or nothing is switched on."
+            },
+            {
+              "action": "Switch both on, with the keyboard open in a value box.",
+              "expected": "The boxes and the Change button are still reachable; nothing is hidden under the keyboard for good."
+            }
+          ]
         }
       ]
     },
@@ -2154,6 +2330,32 @@
             {
               "action": "Look at the server's log.",
               "expected": "One warning per failed backup, none after the folder was put right."
+            }
+          ]
+        },
+        {
+          "key": "FI-SRV-008",
+          "title": "Backups to a folder on the network, named by its network name",
+          "priority": "High",
+          "area": "Server",
+          "preconditions": "A server installed as a service. A shared folder on another machine that the server's PC may write to. Administrator in the desktop app.",
+          "notes": "Found on 2026-10-09: a network name typed with backslashes into FactoryServer.ini was read as \\n, \\M, \\F and the backup went to a folder on C: instead.",
+          "steps": [
+            {
+              "action": "Set the server's backup folder to the share by its network name (\\\\server\\share\\folder), the way the server's settings are changed, and restart the server.",
+              "expected": "The server's log says \"database backups go to\" with exactly that network name - every backslash and letter of it."
+            },
+            {
+              "action": "Desktop: Server > Database Backups..., Back Up Now.",
+              "expected": "The folder shown is the network folder, and the new backup is listed."
+            },
+            {
+              "action": "Look into the shared folder from another PC.",
+              "expected": "The backup file is there, with the size the dialog says."
+            },
+            {
+              "action": "Look at the root of the server PC's drives.",
+              "expected": "No folder with a mangled name (the share's name without its backslashes) was made there."
             }
           ]
         }
