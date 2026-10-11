@@ -8,6 +8,8 @@
 #include <QMessageBox>
 #include <QPageSize>
 #include <QPdfWriter>
+#include <QPrintDialog>
+#include <QPrinter>
 #include <QPushButton>
 #include <QStandardPaths>
 #include <QTextBrowser>
@@ -156,6 +158,79 @@ QString Report::html(const QString &projectName, const QaRun &run, const QaSumma
     return html;
 }
 
+QString Report::casesHtml(const QString &projectName, const QList<CaseOnPaper> &cases, bool roomForResults)
+{
+    QString html = QStringLiteral(
+        "<html><head><meta charset=\"utf-8\"><style>"
+        "body { font-family: sans-serif; color: #000000; background: #ffffff; }"
+        "h1 { font-size: 18pt; } h2 { font-size: 14pt; margin-top: 18px; } h3 { font-size: 11pt; margin-top: 16px; margin-bottom: 4px; }"
+        "p { margin-top: 2px; margin-bottom: 4px; }"
+        "table { border-collapse: collapse; width: 100%; }"
+        "th, td { border: 1px solid #888888; padding: 4px 6px; text-align: left; vertical-align: top; }"
+        "th { background: #e8e8e8; }"
+        "</style></head><body>");
+    html += QStringLiteral("<h1>Test Cases: %1</h1>").arg(escaped(projectName));
+
+    QStringList suites;
+    for (const CaseOnPaper &one : cases)
+        if (!suites.contains(one.suite))
+            suites << one.suite;
+    html += QStringLiteral("<p>%1 in %2 - %3</p>")
+                .arg(cases.size() == 1 ? QStringLiteral("1 test case") : QStringLiteral("%1 test cases").arg(cases.size()),
+                     suites.size() == 1 ? QStringLiteral("1 suite") : QStringLiteral("%1 suites").arg(suites.size()),
+                     QLocale().toString(QDateTime::currentDateTime(), QLocale::ShortFormat));
+    if (cases.isEmpty())
+        html += QStringLiteral("<p>No test cases.</p>");
+
+    QString suite;
+    bool first = true;
+    for (const CaseOnPaper &one : cases)
+    {
+        const QaCase &testCase = one.testCase;
+        if (first || one.suite != suite)
+        {
+            // A suite starts a page of its own: its cases are handed out together.
+            html += first ? QStringLiteral("<h2>%1</h2>").arg(escaped(one.suite))
+                          : QStringLiteral("<h2 style=\"page-break-before: always;\">%1</h2>").arg(escaped(one.suite));
+            suite = one.suite;
+            first = false;
+        }
+        html += QStringLiteral("<h3>%1&nbsp;&nbsp;%2</h3>").arg(escaped(testCase.key), escaped(testCase.title));
+
+        QStringList about;
+        if (!testCase.priority.isEmpty())
+            about << QStringLiteral("Priority: %1").arg(escaped(testCase.priority));
+        if (!testCase.area.isEmpty())
+            about << QStringLiteral("Run on: %1").arg(escaped(testCase.area));
+        if (!testCase.tags.trimmed().isEmpty())
+            about << QStringLiteral("Tags: %1").arg(escaped(testCase.tags.trimmed()));
+        if (!about.isEmpty())
+            html += QStringLiteral("<p>%1</p>").arg(about.join(QStringLiteral(" &nbsp;&middot;&nbsp; ")));
+        if (!testCase.preconditions.trimmed().isEmpty())
+            html += QStringLiteral("<p><b>Before:</b> %1</p>").arg(escaped(testCase.preconditions.trimmed()));
+
+        if (testCase.steps.isEmpty())
+            html += QStringLiteral("<p>No steps.</p>");
+        else
+        {
+            html += roomForResults ? QStringLiteral("<table><tr><th width=\"5%\">#</th><th width=\"45%\">What to do</th><th width=\"42%\">What to expect</th><th width=\"8%\">OK</th></tr>")
+                                   : QStringLiteral("<table><tr><th width=\"5%\">#</th><th width=\"48%\">What to do</th><th>What to expect</th></tr>");
+            int number = 0;
+            for (const QaStep &step : testCase.steps)
+                html += QStringLiteral("<tr><td>%1</td><td>%2</td><td>%3</td>%4</tr>")
+                            .arg(++number).arg(escaped(step.action), escaped(step.expected), roomForResults ? QStringLiteral("<td>&nbsp;</td>") : QString());
+            html += QStringLiteral("</table>");
+        }
+        if (!testCase.notes.trimmed().isEmpty())
+            html += QStringLiteral("<p><b>Notes:</b> %1</p>").arg(escaped(testCase.notes.trimmed()));
+        if (roomForResults)
+            html += QStringLiteral("<p>Result: &nbsp; [&nbsp;&nbsp;&nbsp;] Passed &nbsp; [&nbsp;&nbsp;&nbsp;] Failed &nbsp; [&nbsp;&nbsp;&nbsp;] Blocked &nbsp; [&nbsp;&nbsp;&nbsp;] Skipped"
+                                   " &nbsp; By:&nbsp;__________ &nbsp; Date:&nbsp;__________</p>");
+    }
+    html += QStringLiteral("</body></html>");
+    return html;
+}
+
 bool Report::saveHtml(const QString &html, const QString &path, QString &error)
 {
     QFile file(path);
@@ -186,12 +261,19 @@ bool Report::savePdf(const QString &html, const QString &path, QString &error)
     return true;
 }
 
-ReportDialog::ReportDialog(const QString &title, const QString &html, QWidget *parent)
+void Report::print(const QString &html, QPrinter *printer)
+{
+    QTextDocument document;
+    document.setHtml(html);
+    document.print(printer);
+}
+
+ReportDialog::ReportDialog(const QString &title, const QString &html, QWidget *parent, const QString &caption)
     : QDialog(parent)
     , m_title(title)
     , m_html(html)
 {
-    setWindowTitle(QStringLiteral("Test Report"));
+    setWindowTitle(caption.isEmpty() ? QStringLiteral("Test Report") : caption);
     m_view = new QTextBrowser(this);
     m_view->setObjectName(QStringLiteral("reportView"));
     // Paper is white, whatever the theme of the program.
@@ -202,6 +284,9 @@ ReportDialog::ReportDialog(const QString &title, const QString &html, QWidget *p
     m_view->setHtml(html);
 
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, this);
+    auto *toPrinter = buttons->addButton(QStringLiteral("P&rint..."), QDialogButtonBox::ActionRole);
+    toPrinter->setObjectName(QStringLiteral("reportPrint"));
+    connect(toPrinter, &QPushButton::clicked, this, &ReportDialog::print);
     connect(buttons->addButton(QStringLiteral("Save as &HTML..."), QDialogButtonBox::ActionRole), &QPushButton::clicked, this, [this]() { save(false); });
     connect(buttons->addButton(QStringLiteral("Save as &PDF..."), QDialogButtonBox::ActionRole), &QPushButton::clicked, this, [this]() { save(true); });
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
@@ -210,6 +295,23 @@ ReportDialog::ReportDialog(const QString &title, const QString &html, QWidget *p
     layout->addWidget(m_view, 1);
     layout->addWidget(buttons);
     resize(860, 640);
+}
+
+// The system's own dialog chooses the printer and the pages; the document goes there when it is accepted.
+void ReportDialog::print()
+{
+    auto *printer = new QPrinter(QPrinter::HighResolution);
+    printer->setDocName(m_title);
+    printer->setPageMargins(QMarginsF(15, 15, 15, 15), QPageLayout::Millimeter);
+    auto *dialog = new QPrintDialog(printer, this);
+    dialog->setWindowTitle(QStringLiteral("Print %1").arg(windowTitle()));
+    connect(dialog, &QDialog::finished, this, [this, dialog, printer](int result) {
+        if (result == QDialog::Accepted)
+            Report::print(m_html, printer);
+        dialog->deleteLater();
+        delete printer;
+    });
+    dialog->open();
 }
 
 void ReportDialog::save(bool pdf)

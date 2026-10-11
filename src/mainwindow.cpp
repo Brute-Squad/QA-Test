@@ -6,6 +6,7 @@
 #include "qabackup.h"
 #include "qaconfig.h"
 #include "qashare.h"
+#include "report.h"
 #include "runpanel.h"
 
 #include <QAction>
@@ -23,6 +24,7 @@
 #include <QJsonDocument>
 #include <QLabel>
 #include <QLineEdit>
+#include <QHash>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QPushButton>
@@ -192,6 +194,10 @@ MainWindow::MainWindow(QaDatabase *database, QWidget *parent)
     connect(file->addAction(QStringLiteral("&Update Test Scripts...")), &QAction::triggered, this, &MainWindow::updateScripts);
     m_export = file->addAction(QStringLiteral("&Export Project..."));
     connect(m_export, &QAction::triggered, this, &MainWindow::exportProject);
+    m_print = file->addAction(QStringLiteral("&Print Test Cases..."));
+    m_print->setObjectName(QStringLiteral("printCases"));
+    m_print->setShortcut(QKeySequence::Print);
+    connect(m_print, &QAction::triggered, this, &MainWindow::printCases);
     file->addSeparator();
     QAction *quit = file->addAction(QStringLiteral("&Quit"));
     quit->setShortcut(QKeySequence::Quit);
@@ -231,7 +237,7 @@ MainWindow::MainWindow(QaDatabase *database, QWidget *parent)
     connect(refresh, &QAction::triggered, this, &MainWindow::reload);
 
     // The same on a right click in the tree.
-    m_tree->addActions({ m_newCase, m_clone, m_move, m_addToRun, m_rename, m_delete });
+    m_tree->addActions({ m_newCase, m_clone, m_move, m_addToRun, m_print, m_rename, m_delete });
     connect(m_tree, &QTreeWidget::currentItemChanged, this, [this]() { onSelected(); });
     connect(m_tree, &QTreeWidget::itemSelectionChanged, this, [this]() {
         if (!m_filling)
@@ -745,6 +751,7 @@ void MainWindow::updateActions()
     m_addToRun->setEnabled(cases);
     m_clone->setEnabled(suite);
     m_export->setEnabled(project);
+    m_print->setEnabled(project && !casesToPrint().isEmpty());
 }
 
 bool MainWindow::selectCase(const QString &key)
@@ -1050,6 +1057,83 @@ void MainWindow::exportProject()
 }
 
 // ---- projects, suites, cases ------------------------------------------------------------------------
+
+// ---- test cases on paper -----------------------------------------------------------------------------
+
+QList<qint64> MainWindow::casesToPrint() const
+{
+    // In the order of the tree, whatever order they were selected in.
+    QSet<qint64> wanted;
+    for (qint64 id : selectedCaseIds(true))
+        wanted << id;
+    const QTreeWidgetItem *project = find(ProjectItem, currentId(ProjectItem));
+    QList<qint64> ids;
+    for (int s = 0; project && s < project->childCount(); ++s)
+    {
+        const QTreeWidgetItem *suite = project->child(s);
+        for (int c = 0; c < suite->childCount(); ++c)
+        {
+            const qint64 id = suite->child(c)->data(0, kIdRole).toLongLong();
+            // No case and no suite selected - the project is: all of it that is shown.
+            if (wanted.isEmpty() || wanted.contains(id))
+                ids << id;
+        }
+    }
+    return ids;
+}
+
+QString MainWindow::printTitle() const
+{
+    const QTreeWidgetItem *project = find(ProjectItem, currentId(ProjectItem));
+    return project ? QStringLiteral("%1 - Test Cases").arg(project->text(0)) : QStringLiteral("Test Cases");
+}
+
+QString MainWindow::printHtml(QString *error, bool roomForResults)
+{
+    const qint64 projectId = currentId(ProjectItem);
+    const QList<qint64> ids = casesToPrint();
+    if (projectId == 0 || ids.isEmpty())
+        return QString();
+
+    QString why;
+    QList<QaSuite> suites;
+    QHash<qint64, QString> suiteNames;
+    bool read = m_database->suites(projectId, suites, why);
+    for (const QaSuite &suite : suites)
+        suiteNames.insert(suite.id, suite.name);
+    QList<Report::CaseOnPaper> cases;
+    for (int i = 0; read && i < ids.size(); ++i)
+    {
+        Report::CaseOnPaper one;
+        read = m_database->loadCase(ids.at(i), one.testCase, why);
+        one.suite = suiteNames.value(one.testCase.suiteId);
+        cases << one;
+    }
+    if (!read)
+    {
+        if (error)
+            *error = why;
+        return QString();
+    }
+    return Report::casesHtml(find(ProjectItem, projectId)->text(0), cases, roomForResults);
+}
+
+void MainWindow::printCases()
+{
+    QString error;
+    const QString html = printHtml(&error);
+    if (html.isEmpty())
+    {
+        if (!error.isEmpty())
+            say(QStringLiteral("Print Test Cases"), QStringLiteral("The test cases could not be read."), error);
+        return;
+    }
+    // Shown first: what goes to the printer is seen, and can be saved instead.
+    auto *dialog = new ReportDialog(printTitle(), html, this, QStringLiteral("Test Cases"));
+    dialog->setObjectName(QStringLiteral("printCasesDialog"));
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->open();
+}
 
 void MainWindow::newProject()
 {

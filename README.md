@@ -35,11 +35,12 @@ Start **QA Test Tracker** from the Start menu - or, from a build, `dist\QATest.e
   - **Finish** closes a run so that nothing is marked by mistake (**Reopen** takes that back).
   - **Issue:** the issue a failure was reported as - its number, or its whole address. It is stored with **Failed** or **Blocked**, and when the field is left; **Open** opens it in the browser. A case that passes after all has none.
   - **CSV...** saves the run as a table for a spreadsheet: a line per test case (below).
-  - **Report...** shows the run as a document - what was tested, how it stands, what failed or was blocked with the notes, and every case by suite - to save as HTML or PDF.
+  - **Report...** shows the run as a document - what was tested, how it stands, what failed or was blocked with the notes, and every case by suite - to print (**Print...**) or to save as HTML or PDF.
 - **Dashboard** tab: how the selected project stands over all its runs (below: *Reporting*).
 - **File > Import Test Scripts...** reads a file of test scripts - after showing what that would change (below: *Keeping the scripts current*). Importing a file again brings its cases up to date and adds none twice: a case is known by its key. Results are never touched by an import.
 - **File > Update Test Scripts...** does the same with the scripts that came with the program.
 - **File > Export Project...** writes a project's cases as such a file.
+- **File > Print Test Cases...** (Ctrl+P, and with a right click) puts test cases on paper (below: *Printing test cases*).
 - **Edit > Delete...** deletes the selected case, suite or project after a question that says what goes with it.
 - **Edit > Project Components...** says what the selected project is made of, parted by commas - `Server, Desktop app, Phone app` - which is what New Run... then asks the builds of. Factory Inventory's scripts say it themselves; none = a run says one build.
 
@@ -58,6 +59,23 @@ Start **QA Test Tracker** from the Start menu - or, from a build, `dist\QATest.e
 - **Add to Test Run...** - they join a run that is open, each "Not run"; what is in it already stays as it is.
 - **Delete...** - one question for all of them, saying how many test cases, suites and projects go.
 - **Clone** (Ctrl+D) - a test case once more in its suite: the next free key, "<title> (copy)", its steps, tags and everything that describes it - not how it went, and in no run. A suite is cloned with a clone of each of its cases, as "<name> (copy)".
+
+### Printing test cases
+
+**File > Print Test Cases...** (Ctrl+P; also with a right click in the list on the left) makes a document of what is selected there:
+
+- **a test case** - or several, selected with Ctrl or Shift;
+- **a suite** - its cases; several suites, or suites and single cases together;
+- **a project** - with nothing else selected: every case of it.
+
+While something is looked for (**Find**, or one of the three boxes), a suite and a project are the cases that are *shown*: find the cases tagged `smoke`, select the project, and the smoke cases are what is printed.
+
+The document is shown first: the project, how many cases, and suite by suite - each suite after the first on a page of its own - every case with its key and title, its priority, where it is run and its tags, what has to be there first, its steps (what to do / what to expect) and its notes. The cases stand in the order of the list, whatever order they were selected in. **There is room to write down how it went**: a box beside each step, and under each case a line to tick Passed, Failed, Blocked or Skipped, with who and when - for working through a case away from the PC. From there:
+
+- **Print...** - Windows' own dialog: which printer, which pages, how many copies.
+- **Save as PDF...** / **Save as HTML...** - a file of it instead.
+
+It is black on white whatever the theme of the program: it is paper. Printing changes nothing in the database, and what is written on the paper is typed into a test run afterwards, as always.
 
 ### Reporting
 
@@ -213,7 +231,7 @@ Needs the Qt Installer Framework (`C:\Qt\Tools\QtInstallerFramework`; `-Ifw <its
 
 **The icon** - a clipboard with a checklist - is drawn by a small program, `icons\makeicon.cpp`: `icons\make.bat` builds and runs it and writes `icons\qatest.ico` (the program's file and the installer's) and `icons\qatest-*.png` (the windows'). The files it makes are kept in the folder, so a build does not need it; run it after changing the drawing.
 
-**Only what the program uses is packed.** `build.bat` puts Qt's Core, Gui, Widgets and Sql, the Windows platform and style and SQLite beside the program - not the software OpenGL, the shader compilers, the picture formats, the network and the other databases that `windeployqt` would bring, which were two thirds of what was installed (97 MB then, 32 MB now). The installer itself is 62 MB instead of 77: most of that is the Qt Installer Framework's own program, which every installer made with it carries. It then starts the program from that folder with nothing but Windows on the path: a file that is missing shows there. The installer is not signed: that takes a certificate, which costs money every year.
+**Only what the program uses is packed.** `build.bat` puts Qt's Core, Gui, Widgets, Sql and PrintSupport, the Windows platform and style and SQLite beside the program - not the software OpenGL, the shader compilers, the picture formats, the network and the other databases that `windeployqt` would bring, which were two thirds of what was installed (97 MB then, 32 MB now). The installer itself is 62 MB instead of 77: most of that is the Qt Installer Framework's own program, which every installer made with it carries. It then starts the program from that folder with nothing but Windows on the path: a file that is missing shows there. The installer is not signed: that takes a certificate, which costs money every year.
 
 ### Putting it where the testers get it
 
@@ -225,9 +243,9 @@ makes the installer (as above; `-NoBuild` takes the one that is there) and puts 
 
 ## Tests
 
-`build\QATestTests.exe` (run by `build.bat`; exit code 0 = every check passed). It checks the configuration file (network paths, relative paths, what is wrong with a file, two programs on one database), the database (cases, steps, runs, results, what is refused, what a delete takes along, import and export), reads every file in `scripts\` to see that it can be imported and that each case has steps that say what to expect, and drives the program's own window offscreen: the tree, a case edited and saved, a run made and worked through, its report. And keeping the scripts current: versions compared, what a file would add, change and not have - each kind of difference by name - before anything is read, a case that is as the file says left untouched, what is not in the file deleted only when asked, and the window's line for newer scripts with its preview, Import, Cancel and Not Now. And reporting: an issue's address, the issue of a failure and when it goes, how a project stands - pass rates, open failures by issue, what keeps failing, what never ran - as figures and as the Dashboard's document, a run as CSV, and the Dashboard tab following the runs. And finding and organising: words looked for in every part of a case, tags, a run of a tag, several cases moved, put into a run and deleted together, a case and a suite cloned, and the tree's filters. And getting through a run faster: whose a case is, a run of what failed, the build of each component, files that go with a result and what deleting takes of them, and Run Mode worked through - marked, a note asked for, a file attached, a screenshot pasted, the last case. And what a shared database needs: two programs in one file where the second is told that the first stored the case, a database from an older version, the copy of each day and which are kept, a damaged database, a drive letter as the share's name, and the window while the database is away, with somebody else's change, and with File > Use a Shared Database.
+`build\QATestTests.exe` (run by `build.bat`; exit code 0 = every check passed). It checks the configuration file (network paths, relative paths, what is wrong with a file, two programs on one database), the database (cases, steps, runs, results, what is refused, what a delete takes along, import and export), reads every file in `scripts\` to see that it can be imported and that each case has steps that say what to expect, and drives the program's own window offscreen: the tree, a case edited and saved, a run made and worked through, its report. And keeping the scripts current: versions compared, what a file would add, change and not have - each kind of difference by name - before anything is read, a case that is as the file says left untouched, what is not in the file deleted only when asked, and the window's line for newer scripts with its preview, Import, Cancel and Not Now. And reporting: an issue's address, the issue of a failure and when it goes, how a project stands - pass rates, open failures by issue, what keeps failing, what never ran - as figures and as the Dashboard's document, a run as CSV, and the Dashboard tab following the runs. And finding and organising: words looked for in every part of a case, tags, a run of a tag, several cases moved, put into a run and deleted together, a case and a suite cloned, and the tree's filters. And getting through a run faster: whose a case is, a run of what failed, the build of each component, files that go with a result and what deleting takes of them, and Run Mode worked through - marked, a note asked for, a file attached, a screenshot pasted, the last case. And what a shared database needs: two programs in one file where the second is told that the first stored the case, a database from an older version, the copy of each day and which are kept, a damaged database, a drive letter as the share's name, and the window while the database is away, with somebody else's change, and with File > Use a Shared Database. And test cases on paper: a project, a suite, one case and several as a document - what it says of a case and what it leaves out, the order, the suites' page breaks, with and without room for results - sent to a printer that writes a file, and saved.
 
-**To look at the windows** - which the tests can only read - `QATestTests --pictures <folder>` (with Qt's `bin` on the path) draws them as they look on this PC into PNG files: the Test Case, Test Runs and Dashboard tabs, a search, Run Mode, the preview of an import, the line for newer scripts, and the installer's database page at the size the installer gives it. Nothing is shown on the screen, typed or clicked, and the database is one of its own in a temporary folder. Look at them after changing a window: text that is cut off or a column that is squeezed shows there and nowhere else.
+**To look at the windows** - which the tests can only read - `QATestTests --pictures <folder>` (with Qt's `bin` on the path) draws them as they look on this PC into PNG files (and test cases as they are printed, also as a PDF): the Test Case, Test Runs and Dashboard tabs, a search, Run Mode, the preview of an import, the line for newer scripts, and the installer's database page at the size the installer gives it. Nothing is shown on the screen, typed or clicked, and the database is one of its own in a temporary folder. Look at them after changing a window: text that is cut off or a column that is squeezed shows there and nowhere else.
 
 ## Layout
 
@@ -241,7 +259,7 @@ makes the installer (as above; `-NoBuild` takes the one that is there) and puts 
 | `src/casepanel.*` | The Test Case tab |
 | `src/runpanel.*` | The Test Runs tab |
 | `src/runmode.*` | Run Mode: a run's cases one at a time, the result on a key, files that go with it |
-| `src/report.*` | A run as an HTML document, saved as HTML or PDF, and as CSV |
+| `src/report.*` | A run, and test cases, as an HTML document - shown, printed, saved as HTML or PDF - and a run as CSV |
 | `src/dashboard.*` | The Dashboard tab: a project over all its runs |
 | `src/importpreview.*` | What a file of test scripts would change, shown before it is read |
 | `src/main.cpp` | Start-up and the command line |

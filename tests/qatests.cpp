@@ -32,6 +32,9 @@
 //                  program's windows as they look on this PC into PNG files,
 //                  without showing anything on the screen - to look at what
 //                  the tests can only read
+//   printing       test cases as a document - a project, a suite, one case,
+//                  several - and that document on a printer (one that
+//                  writes a file): in "the window", after the report
 //   the window     the program's own window and panels, offscreen, on a
 //                  database in memory: the tree, a case edited and saved, a
 //                  run made and worked through, its report
@@ -47,6 +50,8 @@
 #include "runmode.h"
 #include "runpanel.h"
 
+#include <QKeySequence>
+#include <QPrinter>
 #include <QAction>
 #include <QApplication>
 #include <functional>
@@ -563,6 +568,94 @@ namespace
         check(Report::saveHtml(html, folder.filePath("report.html"), error) && QFile(folder.filePath("report.html")).size() > 500, "written as HTML: " + error);
         check(Report::savePdf(html, folder.filePath("report.pdf"), error) && QFile(folder.filePath("report.pdf")).size() > 1000, "and as a PDF: " + error);
         check(!Report::saveHtml(html, folder.filePath("no/such/folder/report.html"), error) && !error.isEmpty(), "a folder that is not there is said");
+
+        // ---- test cases on paper: File > Print Test Cases...
+        auto *print = window.findChild<QAction *>("printCases");
+        check(print != nullptr && print->text().remove('&') == "Print Test Cases..." && print->shortcut() == QKeySequence(QKeySequence::Print), "Print Test Cases... is on the File menu");
+        if (!print)
+            return;
+        QTreeWidgetItem *project = tree->topLevelItem(0);
+        // The project alone: every case of it, suite by suite, each suite on a page of its own.
+        tree->clearSelection();
+        tree->setCurrentItem(project);
+        check(window.casesToPrint().size() == 3 && print->isEnabled() && window.printTitle() == "Sample - Test Cases", "a project is all its cases: " + window.printTitle());
+        const QString paper = window.printHtml(&error);
+        check(paper.contains("<h1>Test Cases: Sample</h1>") && paper.contains("3 test cases in 2 suites") && paper.contains("<h2>Login</h2>")
+              && paper.contains("<h2 style=\"page-break-before: always;\">Parts</h2>"),
+              "the document says the project, how many, and its suites - the second on a new page");
+        check(paper.contains("S-LOGIN-001&nbsp;&nbsp;Log in with a password") && paper.contains("What to do") && paper.contains("What to expect")
+              && paper.contains("<td>1</td><td>Start the app</td>") && paper.indexOf("S-LOGIN-001") < paper.indexOf("S-LOGIN-002") && paper.indexOf("S-LOGIN-002") < paper.indexOf("<h2 style"),
+              "a case with its key, its title and its steps, in the order of the tree");
+        check(paper.count("Result: &nbsp; [") == 3 && paper.contains("<th width=\"8%\">OK</th>") && paper.contains("By:&nbsp;______"), "with room to write down how each went");
+        const QString plain = window.printHtml(&error, false);
+        check(!plain.contains("Result:") && !plain.contains(">OK<") && plain.contains("Start the app"), "or without it: the cases alone");
+        // Black on white, whatever the theme: it is paper.
+        check(paper.contains("color: #000000; background: #ffffff;"), "the document is black on white");
+        // What a case says of itself, and only what it has.
+        {
+            QaCase full;
+            full.key = "X-1";
+            full.title = "A <case> & more";
+            full.priority = "High";
+            full.area = "Phone";
+            full.tags = "smoke, phone";
+            full.preconditions = "Logged in\nas an administrator";
+            full.notes = "Takes a while";
+            full.steps = { { "Tap <Add>", "A form opens" } };
+            QaCase bare;
+            bare.key = "X-2";
+            bare.title = "Nothing yet";
+            const QString two = Report::casesHtml("P & Q", { { "Suite A", full }, { "Suite A", bare } });
+            check(two.contains("Test Cases: P &amp; Q") && two.contains("2 test cases in 1 suite") && two.count("<h2") == 1 && !two.contains("page-break"), "one suite, one heading, no page break");
+            check(two.contains("X-1&nbsp;&nbsp;A &lt;case&gt; &amp; more") && two.contains("Priority: High") && two.contains("Run on: Phone") && two.contains("Tags: smoke, phone")
+                  && two.contains("<b>Before:</b> Logged in<br>as an administrator") && two.contains("<b>Notes:</b> Takes a while") && two.contains("Tap &lt;Add&gt;"),
+                  "priority, where it is run, tags, what has to be there first, notes - and nothing of it is taken for HTML");
+            const QString second = two.mid(two.indexOf("X-2"));
+            check(second.contains("No steps.") && !second.contains("Priority:") && !second.contains("Before:") && !second.contains("Notes:"), "a case that has none of that says none of it");
+            check(Report::casesHtml("P", {}).contains("0 test cases in 0 suites") && Report::casesHtml("P", {}).contains("No test cases."), "and no cases is said");
+            check(Report::casesHtml("P", { { "Suite A", bare } }).contains("1 test case in 1 suite"), "one is one");
+        }
+
+        // One case; a suite; several cases of two suites.
+        check(window.selectCase("S-LOGIN-002") && window.casesToPrint().size() == 1 && print->isEnabled(), "a case that is selected is what is printed");
+        QString one = window.printHtml(&error);
+        check(one.contains("1 test case in 1 suite") && one.contains("S-LOGIN-002") && !one.contains("S-LOGIN-001") && !one.contains("<h2>Parts</h2>") && !one.contains("page-break"),
+              "that case alone, under its suite");
+        tree->clearSelection();
+        tree->setCurrentItem(project->child(1));
+        one = window.printHtml(&error);
+        check(window.casesToPrint().size() == project->child(1)->childCount() && one.contains("<h2>Parts</h2>") && !one.contains("S-LOGIN-00") && !one.contains("page-break"),
+              "a suite is its cases");
+        tree->clearSelection();
+        tree->setCurrentItem(project->child(1)->child(0));
+        project->child(0)->child(0)->setSelected(true);          // selected second, printed first: the tree's order
+        one = window.printHtml(&error);
+        check(window.casesToPrint().size() == 2 && one.indexOf("S-LOGIN-001") > 0 && one.indexOf("S-LOGIN-001") < one.indexOf("page-break-before") && !one.contains("S-LOGIN-002"),
+              "several cases of two suites, in the tree's order whatever order they were picked in");
+
+        // To a printer - here one that writes a file - and as a PDF.
+        {
+            QPrinter printer;
+            printer.setOutputFormat(QPrinter::PdfFormat);
+            printer.setOutputFileName(folder.filePath("cases-printed.pdf"));
+            Report::print(paper, &printer);
+        }
+        check(QFile(folder.filePath("cases-printed.pdf")).size() > 1000, "the document goes to a printer");
+        check(Report::savePdf(paper, folder.filePath("cases.pdf"), error) && QFile(folder.filePath("cases.pdf")).size() > 1000
+              && Report::saveHtml(paper, folder.filePath("cases.html"), error), "and is saved as a PDF and as HTML: " + error);
+
+        // The document's window: Print..., and what it is called.
+        {
+            ReportDialog cases("Sample - Test Cases", paper, nullptr, "Test Cases");
+            auto *toPrinter = cases.findChild<QPushButton *>("reportPrint");
+            auto *view = cases.findChild<QTextBrowser *>("reportView");
+            check(cases.windowTitle() == "Test Cases" && toPrinter && toPrinter->text().remove('&') == "Print..." && view && view->toPlainText().contains("Log in with a password"),
+                  "the test cases are shown first, with Print...");
+            ReportDialog report("Sample - First", html);
+            check(report.windowTitle() == "Test Report" && report.findChild<QPushButton *>("reportPrint") != nullptr, "a run's report can be printed too");
+        }
+        tree->clearSelection();
+        tree->setCurrentItem(project);
     }
 
     // ---- a database several people work in ---------------------------------------------------------
@@ -2251,6 +2344,14 @@ namespace
         auto *tabs = window.findChild<QTabWidget *>("tabs");
         window.selectCase("FI-PARTS-001");
         draw(&window, folder, "1-test-case");
+        {
+            // File > Print Test Cases...: the case as it goes to the printer, and as a PDF beside the pictures.
+            ReportDialog paper(window.printTitle(), window.printHtml(), nullptr, QStringLiteral("Test Cases"));
+            paper.setAttribute(Qt::WA_DontShowOnScreen);
+            paper.show();
+            draw(&paper, folder, "1b-print-test-cases");
+            Report::savePdf(window.printHtml(), QDir(folder).filePath("1b-print-test-cases.pdf"), error);
+        }
 
         // A run that is under way: some passed, some failed with an issue, some for somebody.
         RunPanel *runs = window.runPanel();

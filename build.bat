@@ -50,12 +50,14 @@ rem starts from the Explorer on a PC that has no Qt. (In a folder of its own: be
 rem the test program those files would keep it from finding the offscreen platform.)
 if not exist dist mkdir dist
 copy /y build\QATest.exe dist\QATest.exe >nul
-rem Only what the program uses: Qt's Core, Gui, Widgets and Sql, the Windows platform and
+rem Only what the program uses: Qt's Core, Gui, Widgets, Sql and PrintSupport, the Windows platform and
 rem style, and SQLite. Not the software OpenGL and the shader compilers (the program
 rem draws nothing with them), not the pictures' formats (PNG is in Qt itself), not the
 rem network, not the other databases: that is two thirds of what windeployqt brings.
-rem ("deployed-2.txt" marks a folder that was filled this way: an older one is filled anew.)
-if not exist dist\deployed-2.txt (
+rem ("deployed-3.txt" marks a folder that was filled this way: an older one - which has no
+rem printing library - is filled anew.)
+if not exist dist\deployed-3.txt (
+    if exist dist\deployed-2.txt del /q dist\deployed-2.txt
     for %%F in (opengl32sw.dll dxcompiler.dll dxil.dll d3dcompiler_47.dll Qt6Network.dll Qt6Svg.dll Qt6Pdf.dll Qt6OpenGL.dll) do if exist dist\%%F del /q dist\%%F
     for %%D in (imageformats iconengines generic tls networkinformation sqldrivers platforms styles translations) do if exist dist\%%D rmdir /s /q dist\%%D
     windeployqt --no-translations --no-opengl-sw --no-system-d3d-compiler --no-system-dxc-compiler --skip-plugin-types imageformats,iconengines,generic,tls,networkinformation dist\QATest.exe >nul
@@ -66,7 +68,7 @@ if not exist dist\deployed-2.txt (
     rem What it brings all the same, and nothing here uses.
     for %%F in (Qt6Network.dll Qt6Svg.dll Qt6Pdf.dll Qt6OpenGL.dll opengl32sw.dll dxcompiler.dll dxil.dll d3dcompiler_47.dll) do if exist dist\%%F del /q dist\%%F
     for %%F in (qsqlibase qsqlodbc qsqloci qsqlpsql qsqlmimer qsqlmysql) do if exist dist\sqldrivers\%%F.dll del /q dist\sqldrivers\%%F.dll
-    echo filled by build.bat> dist\deployed-2.txt
+    echo filled by build.bat> dist\deployed-3.txt
 )
 rem Is it whole? It starts, opens a database and can write a picture - with nothing but
 rem Windows and its own folder to find its files in.
