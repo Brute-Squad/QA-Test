@@ -1,12 +1,12 @@
 cmake_minimum_required(VERSION 3.21)
-project(QATest VERSION 1.5 LANGUAGES CXX)
+project(QATest VERSION 1.6 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Sql UiTools)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Sql PrintSupport UiTools)
 
 # The database, which the program and its tests share.
 add_library(QaData STATIC
@@ -47,7 +47,8 @@ add_executable(QATest WIN32
     src/qatest.rc
     src/qatest.qrc
 )
-target_link_libraries(QATest PRIVATE QaData Qt6::Gui Qt6::Widgets)
+# (PrintSupport: a document goes to a printer - report.cpp.)
+target_link_libraries(QATest PRIVATE QaData Qt6::Gui Qt6::Widgets Qt6::PrintSupport)
 # (The .exe is made again when only the icon changed.)
 set_source_files_properties(src/qatest.rc PROPERTIES OBJECT_DEPENDS "${CMAKE_SOURCE_DIR}/icons/qatest.ico")
 
@@ -80,7 +81,7 @@ add_executable(QATestTests
 target_include_directories(QATestTests PRIVATE src)
 target_compile_definitions(QATestTests PRIVATE QA_SCRIPTS_DIR="${CMAKE_SOURCE_DIR}/scripts" QA_INSTALLER_DIR="${CMAKE_SOURCE_DIR}/installer")
 # (UiTools: only to draw the installer's page from its .ui file - QATestTests --pictures.)
-target_link_libraries(QATestTests PRIVATE QaData Qt6::Gui Qt6::Widgets Qt6::UiTools)
+target_link_libraries(QATestTests PRIVATE QaData Qt6::Gui Qt6::Widgets Qt6::PrintSupport Qt6::UiTools)
 
 enable_testing()
 add_test(NAME QATestTests COMMAND QATestTests)

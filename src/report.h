@@ -5,6 +5,7 @@
 
 #include <QDialog>
 
+class QPrinter;
 class QTextBrowser;
 
 // A test run on paper: what was tested, by whom and when, how it stands,
@@ -23,21 +24,41 @@ namespace Report
     // Written as UTF-8 with the mark that tells Excel so.
     bool saveCsv(const QString &csv, const QString &path, QString &error);
 
+    // Test cases on paper, to read or to work through away from the program:
+    // suite by suite (each on a page of its own, after the first), a case with
+    // its key and title, its priority, where it is run and its tags, what has
+    // to be there first, its steps - what to do, what to expect - and its
+    // notes. `roomForResults`: under each case a line to tick how it went,
+    // and beside each step a box. The cases come with their steps
+    // (QaDatabase::loadCase), in the order they are to stand in.
+    struct CaseOnPaper
+    {
+        QString suite;
+        QaCase  testCase;
+    };
+    QString casesHtml(const QString &projectName, const QList<CaseOnPaper> &cases, bool roomForResults = true);
+
     // Write a document as an HTML file, or as a PDF (A4). False with the reason.
     bool saveHtml(const QString &html, const QString &path, QString &error);
     bool savePdf(const QString &html, const QString &path, QString &error);
+
+    // A document on that printer (which may be one that writes a file).
+    void print(const QString &html, QPrinter *printer);
 }
 
-// The report on the screen, with Save as HTML... and Save as PDF...
+// A document on the screen, with Print..., Save as HTML... and Save as PDF...
+// `title` is what a file of it is called; `caption` the window's name
+// ("Test Report" unless said).
 class ReportDialog : public QDialog
 {
     Q_OBJECT
 
 public:
-    ReportDialog(const QString &title, const QString &html, QWidget *parent = nullptr);
+    ReportDialog(const QString &title, const QString &html, QWidget *parent = nullptr, const QString &caption = QString());
 
 private:
     void save(bool pdf);
+    void print();
 
     QString       m_title;
     QString       m_html;

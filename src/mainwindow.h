@@ -100,6 +100,15 @@ public:
     QString addSelectedToRun(qint64 runId, int *added = nullptr);
     QString cloneSelected();
 
+    // File > Print Test Cases...: what is selected as a document (report.h) -
+    // the selected cases, the cases that are shown of the selected suites, or,
+    // with a project alone selected, every case of it that is shown. Which
+    // cases those are, in the order of the tree; the document ("" = nothing to
+    // print, or `error` says why not); and what it is called.
+    QList<qint64> casesToPrint() const;
+    QString printHtml(QString *error = nullptr, bool roomForResults = true);
+    QString printTitle() const;
+
 public slots:
     void reload();
 
@@ -128,6 +137,7 @@ private:
     void updateScripts();
     void updateScriptsNotice();
     void exportProject();
+    void printCases();
     void whereIsTheDatabase();
     void editConfiguration();
     void newProject();
@@ -187,6 +197,7 @@ private:
     QAction *m_issues = nullptr;
     QAction *m_delete = nullptr;
     QAction *m_export = nullptr;
+    QAction *m_print = nullptr;
 };
 
 #endif // MAINWINDOW_H
