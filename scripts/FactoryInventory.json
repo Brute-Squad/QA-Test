@@ -1,6 +1,6 @@
 {
   "project": "Factory Inventory",
-  "version": "2026-10-12.1",
+  "version": "2026-10-12.2",
   "components": ["Server", "Desktop app", "Phone app"],
   "issueUrl": "https://github.com/Brute-Squad/FactoryInventory/issues/%1",
   "description": "Manual test scripts for Factory Inventory 0.2.1 Beta: the server, the desktop app and the phone app.",
@@ -1069,7 +1069,7 @@
           "steps": [
             {
               "action": "Add an assembly template \"QA Frame recipe\" that makes QA Frame.",
-              "expected": "Stored; Makes cannot be changed afterwards."
+              "expected": "Stored. The part it was made for cannot be changed afterwards; its Makes tab (phone: Makes) lists that part, 1 per build."
             },
             {
               "action": "On its Parts tab add 6 bolts and 2 plates.",
@@ -1303,6 +1303,113 @@
               "expected": "The question says that its list is deleted and that the jobs made from it stay; the job is still there."
             }
           ]
+        },
+        {
+          "key": "FI-ASM-011",
+          "tags": ["smoke"],
+          "title": "A template makes several parts",
+          "priority": "High",
+          "area": "Desktop",
+          "preconditions": "Parts \"QA Bracket\", \"QA Hook\", \"QA Clip\" and \"QA Filament\" (measured in g, stock of 1000 at 0.02). An assembly template \"QA Plate\" that makes QA Bracket, of 120 QA Filament.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open QA Plate and its Makes tab.",
+              "expected": "One line: QA Bracket, 1 per build, 100.0% of the cost. The buttons are off until Edit is pressed."
+            },
+            {
+              "action": "Press Edit, then Add Made Part...; look at the parts offered.",
+              "expected": "QA Hook and QA Clip are offered; QA Bracket - made already - is not."
+            },
+            {
+              "action": "Choose QA Hook, 2 pieces per build, no material; OK.",
+              "expected": "Listed. The shares are by pieces: QA Bracket 33.3%, QA Hook 66.7%."
+            },
+            {
+              "action": "Edit the line of QA Bracket: 3 pieces per build.",
+              "expected": "Stored - the part itself cannot be changed. Shares 60.0% and 40.0%. The form says \"One build makes 3 QA Bracket, 2 QA Hook\"."
+            },
+            {
+              "action": "Add Made Part... and choose QA Filament.",
+              "expected": "Refused in the dialog: it is a part this template is made of."
+            },
+            {
+              "action": "Select the line of QA Bracket and press Delete Made Part...; confirm.",
+              "expected": "Refused: it is the part the template was made for, and stays in the list."
+            },
+            {
+              "action": "Add QA Clip, then delete its line.",
+              "expected": "The question says the part itself stays. The line is gone; QA Clip is still a part."
+            },
+            {
+              "action": "Edit both lines: material per piece 30 for QA Bracket, 15 for QA Hook.",
+              "expected": "The shares are now by material: 75.0% and 25.0%."
+            },
+            {
+              "action": "Open the Cost tab.",
+              "expected": "The heading says \"One build makes 3 QA Bracket, 2 QA Hook, of 1 part\"."
+            }
+          ]
+        },
+        {
+          "key": "FI-ASM-012",
+          "title": "An assembly builds a lot of every part, and they share its cost",
+          "priority": "High",
+          "area": "Desktop",
+          "preconditions": "The template of FI-ASM-011: 3 QA Bracket (30 each) and 2 QA Hook (15 each) per build, of 120 QA Filament at 0.02.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Add an assembly of QA Plate with quantity 2.",
+              "expected": "Its form says Makes: 6 QA Bracket, 4 QA Hook."
+            },
+            {
+              "action": "On its Build tab press Reserve Parts, then Build... into a place.",
+              "expected": "Built. The heading says \"6 QA Bracket, 4 QA Hook - Built\"; the total cost is 4.80."
+            },
+            {
+              "action": "Open QA Bracket's Inventory tab, then QA Hook's.",
+              "expected": "A new lot of 6 at a unit cost of 0.60, and one of 4 at 0.30: three quarters of the cost for the brackets, by their material."
+            },
+            {
+              "action": "Clear the material of one line of the template, then build another assembly of quantity 1.",
+              "expected": "The cost is shared equally per piece: 2.40 over 5 pieces, 0.48 each for the brackets and the hooks."
+            },
+            {
+              "action": "Look at the Assemblies list.",
+              "expected": "A Makes column says what each assembly makes."
+            }
+          ]
+        },
+        {
+          "key": "FI-ASM-013",
+          "title": "What a template makes, on the phone",
+          "priority": "Medium",
+          "area": "Phone",
+          "preconditions": "The template of FI-ASM-011, and the right to change assembly templates.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open the template's page.",
+              "expected": "It says \"One build makes 3 QA Bracket, 2 QA Hook\" and has a Makes button before Parts."
+            },
+            {
+              "action": "Tap Makes.",
+              "expected": "The part the template was made for first; under each name the pieces per build, the material and the share of the cost."
+            },
+            {
+              "action": "Tap Edit on the template, then Add Made Part on the list; choose QA Hook again.",
+              "expected": "Refused on the page: the template makes it already."
+            },
+            {
+              "action": "Choose QA Clip with 5 per build and save.",
+              "expected": "Added; the shares of all three lines follow."
+            },
+            {
+              "action": "Open the Cost page of the template, and the page of an assembly made from it.",
+              "expected": "The heading names everything one build makes; the assembly's page says what it makes in all."
+            }
+          ]
         }
       ]
     },
@@ -1427,22 +1534,46 @@
         },
         {
           "key": "FI-MACH-006",
-          "title": "Import a sliced file",
+          "title": "Import a sliced file: a plate is one template that makes everything on it",
           "priority": "Medium",
           "area": "Desktop",
-          "preconditions": "A sliced export (.gcode.3mf) of two plates, or a single plate's .gcode. A machine of the printer's model.",
+          "preconditions": "A sliced export (.gcode.3mf) with at least two different plates - one holding several copies of one object, one holding two different objects. A machine of the printer's model.",
           "notes": "",
           "steps": [
             {
-              "action": "Choose File > Import Sliced File... and pick the file.",
-              "expected": "The dialog shows the project, the printer model chosen, the filaments with their grams and one row per plate with its hours."
+              "action": "Choose File > Import Sliced Files... and pick the file.",
+              "expected": "The dialog shows the project name, the printer model chosen, the filaments with their grams, a table of what is printed and one row per plate with its hours."
+            },
+            {
+              "action": "Look at the table of what is printed (Object / Pieces / Part / Filament per piece).",
+              "expected": "One row per kind of object, with how many pieces there are on all plates. Each says \"New part: <project> <object>\". The filament per piece is filled in for the object that is alone on its plate - the plate's grams by its pieces."
+            },
+            {
+              "action": "Look at the plates' column \"One build makes\".",
+              "expected": "It says the plate as it is: \"16 Peg\" for sixteen copies, \"1 Lid, 1 Base\" for two objects. Assemblies says 1 for each."
+            },
+            {
+              "action": "Type \"abc\" as the filament per piece of one object and press Import.",
+              "expected": "Refused before anything is stored: it is an amount above 0, or left empty. Put a number back."
             },
             {
               "action": "Press Import.",
-              "expected": "A template per plate is made, each making a part of its own, with the filament as a part in grams and the print time as the run time."
+              "expected": "It says how many templates were imported, and that the job template was made of them. The rows say \"imported\" and are unticked."
             },
             {
-              "action": "Open a project file that was only saved, not sliced.",
+              "action": "Open the template of the plate with several copies; look at its Makes tab and its Parts tab.",
+              "expected": "Makes: the one part, as many per build as the plate holds, with its filament per piece. Parts: each filament as a part in grams. Machine Models: the print time as the run time."
+            },
+            {
+              "action": "Open the template of the plate with two objects; look at its Makes tab.",
+              "expected": "Two lines - a part per object, 1 per build each - with a share of the cost each, and no part called after the plate."
+            },
+            {
+              "action": "Open Job Templates.",
+              "expected": "One named after the project, with a line per template: 1 piece in each, 1 assembly."
+            },
+            {
+              "action": "Choose File > Import Sliced Files... again and open a project file that was only saved, not sliced.",
               "expected": "It says the file was not sliced and to export the sliced file."
             }
           ]
@@ -1486,7 +1617,7 @@
           "notes": "",
           "steps": [
             {
-              "action": "Choose File > Import Sliced File... and the file.",
+              "action": "Choose File > Import Sliced Files... and the file.",
               "expected": "Each plate's row shows the picture the slicer drew of it, on white."
             },
             {
@@ -1504,6 +1635,52 @@
             {
               "action": "Open one of the templates.",
               "expected": "The picture is at the top of its form; a click opens its pictures."
+            }
+          ]
+        },
+        {
+          "key": "FI-MACH-009",
+          "title": "Several sliced files at once: the plates of a job",
+          "priority": "High",
+          "area": "Desktop",
+          "preconditions": "The G-code (.gcode) of three plates from the slicer: two that are the same print exported twice, and one of the same object in another filament colour. A file that is no slicer's (any text file renamed to .gcode).",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Choose File > Import Sliced Files... and select all four files.",
+              "expected": "The dialog's title says 4 files. The file that is no slicer's is named as left out, with why; the rest is shown. There is no project name to type."
+            },
+            {
+              "action": "Look at the plates.",
+              "expected": "Two rows: the plate that was exported twice is one row with Assemblies 2 - its tool tip names the two files - and the other colour is a row of its own with 1."
+            },
+            {
+              "action": "Look at the table of what is printed.",
+              "expected": "Two rows for the same object name, each with its file: an object of the same name in two files is two parts, each \"New part: ...\" under a name of its own."
+            },
+            {
+              "action": "Look at the filaments.",
+              "expected": "Each type and colour once, with what all the files take of it together."
+            },
+            {
+              "action": "Look at the job template line under the plates.",
+              "expected": "Ticked, and called after what the files' names begin with (or their folder). Empty its name and press Import: refused, nothing imported. Type a name."
+            },
+            {
+              "action": "Press Import.",
+              "expected": "Two templates were imported and the job template was made of them."
+            },
+            {
+              "action": "Open the job template.",
+              "expected": "Two lines: 2 assemblies of the plate that was there twice, 1 of the other."
+            },
+            {
+              "action": "Press Make a Job... on it.",
+              "expected": "A job with three planned assemblies."
+            },
+            {
+              "action": "Import the same files again.",
+              "expected": "The parts that are there are not taken by themselves: each object says \"New part: ... (2)\", and the part there is can be chosen in its box instead."
             }
           ]
         }
@@ -3085,7 +3262,7 @@
           "notes": "",
           "steps": [
             {
-              "action": "Open the larger dialogs one after the other: Add Part, Server > Users and Groups..., Data > Make List..., Data > Product Money..., File > Import Sliced File...",
+              "action": "Open the larger dialogs one after the other: Add Part, Server > Users and Groups..., Data > Make List..., Data > Product Money..., File > Import Sliced Files... (with a file of several plates)",
               "expected": "Each is wholly on the screen: its title bar can be reached and its buttons are in sight."
             },
             {
