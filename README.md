@@ -2,14 +2,14 @@
 
 A small desktop program for manual testing: test cases with their steps, test runs, and what passed or failed - all in one SQLite file. Written with Qt 6 (Widgets, C++17).
 
-It comes with the manual test scripts for **Factory Inventory** (`scripts/FactoryInventory.json`: 15 suites, 122 test cases), already imported into `data/qatest.sqlite`.
+It comes with the manual test scripts for **Factory Inventory** (`scripts/FactoryInventory.json`: 15 suites, 126 test cases), already imported into `data/qatest.sqlite`.
 
 ## Installing it
 
 `installer\out\QATestTracker-<version>-Setup.exe` (made by `installer\build-installer.ps1`, below) installs the program on a PC that has nothing else: no Qt, no compiler, no runtime to install first.
 
 - It installs **for the user who runs it** - into `%LOCALAPPDATA%\Programs\QA Test Tracker` - and asks for no administrator's rights. It makes **QA Test Tracker** in the Start menu and on the desktop, and **Uninstall QA Test Tracker** in the Start menu.
-- **The first start brings the test scripts along.** A database with no project in it reads the scripts that came with the program (`scripts\*.json` beside it): Factory Inventory's 122 test cases are there at once. A database that has a project is never touched this way.
+- **The first start brings the test scripts along.** A database with no project in it reads the scripts that came with the program (`scripts\*.json` beside it): Factory Inventory's 126 test cases are there at once. A database that has a project is never touched this way.
 - **It asks which database to use** (the page *Your Database*, before it installs):
   - **Create a new database** - where you say; at first `qatest.sqlite` in your application data folder (`%APPDATA%\QATest\QATest`). It starts with the test scripts for Factory Inventory. A name that is taken is refused: nothing is ever written over.
   - **Use a database that is there already** - your own from before, or the one your team shares (`\\server\share\qatest.sqlite`). Its test cases, runs and results are left as they are (a database from an older version gets what this version needs added to it; the older version goes on working in it). A drive letter of a network drive is written down as the share's own name - `M:\QA-Test\...` as `\\nas1\MyMedia\QA-Test\...` - which is the same on every PC. This is what the page starts with when your configuration file names a database, or your own is there.
