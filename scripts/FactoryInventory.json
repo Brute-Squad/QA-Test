@@ -1,9 +1,9 @@
 {
   "project": "Factory Inventory",
-  "version": "2026-10-09.3",
+  "version": "2026-10-12.1",
   "components": ["Server", "Desktop app", "Phone app"],
   "issueUrl": "https://github.com/Brute-Squad/FactoryInventory/issues/%1",
-  "description": "Manual test scripts for Factory Inventory 0.2.0 Beta: the server, the desktop app and the phone app.",
+  "description": "Manual test scripts for Factory Inventory 0.2.1 Beta: the server, the desktop app and the phone app.",
   "suites": [
     {
       "name": "Installation and setup",
@@ -215,6 +215,70 @@
             {
               "action": "Open Make List..., Product Money... and Currency....",
               "expected": "Each opens without an error on the old data: empty lists, and a currency that fits the PC's country."
+            }
+          ]
+        },
+        {
+          "key": "FI-SETUP-009",
+          "title": "A server that has no login yet says so",
+          "priority": "High",
+          "area": "Desktop and phone",
+          "preconditions": "A server that was just installed: its service runs, and nobody has made a login in its settings program yet. A desktop app and a phone set up for it.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Start the desktop app.",
+              "expected": "A box \"No Login Yet\" says that the server has no login yet and where one is made: Factory Inventory Server at the server's PC, Create Login. No login dialog asks for a password nobody has."
+            },
+            {
+              "action": "Press Try Again without having changed anything.",
+              "expected": "Still one box, with the same sentence."
+            },
+            {
+              "action": "In Server Settings... press Test Connection.",
+              "expected": "\"The server answers.\" and the same sentence - not \"the password is wrong\"."
+            },
+            {
+              "action": "Open the phone app.",
+              "expected": "Its first page says the same sentence in bold, with Try Again."
+            },
+            {
+              "action": "Make the first login in the server's settings program, then press Try Again in both apps.",
+              "expected": "The box goes; both ask for the login, and it works."
+            }
+          ]
+        },
+        {
+          "key": "FI-SETUP-010",
+          "title": "An upgrade turns the batches of an older database into jobs",
+          "priority": "High",
+          "area": "Server",
+          "preconditions": "A server of a version from before 2026-10-12 with data: an assembly batch with assemblies in it, an assembly batch template with lines, and a group of users with rights on Assembly Batches but not on everything.",
+          "notes": "Try it on a copy of a real database before the real one.",
+          "steps": [
+            {
+              "action": "Install the new server over the old one and start it.",
+              "expected": "It starts; its log has no error about the database."
+            },
+            {
+              "action": "Log in with the new desktop app and open Jobs.",
+              "expected": "Every batch is there as a job, under its name, with its assemblies on its Run tab."
+            },
+            {
+              "action": "Open Job Templates.",
+              "expected": "Every batch template is there with its lines on its Assemblies tab."
+            },
+            {
+              "action": "Open an assembly that was in a batch.",
+              "expected": "Its Job field names that job."
+            },
+            {
+              "action": "Log in as a user of the group.",
+              "expected": "The user sees and may do with Jobs exactly what they could with Assembly Batches."
+            },
+            {
+              "action": "Start an app of the old version against the new server.",
+              "expected": "It says that the server is newer than the app; update the app."
             }
           ]
         }
@@ -991,8 +1055,8 @@
       ]
     },
     {
-      "name": "Assemblies and batches",
-      "description": "Templates, reserving and building, substitutes, batches.",
+      "name": "Assemblies and jobs",
+      "description": "Templates, reserving and building, substitutes, jobs.",
       "cases": [
         {
           "key": "FI-ASM-001",
@@ -1089,19 +1153,19 @@
         },
         {
           "key": "FI-ASM-005",
-          "title": "A batch reserves and builds several assemblies as one",
+          "title": "A job reserves and builds several assemblies as one",
           "priority": "High",
           "area": "Desktop and phone",
           "preconditions": "Three planned assemblies; stock for all three.",
           "notes": "",
           "steps": [
             {
-              "action": "Add a batch \"QA Run\". Open its Run tab and press Add Assemblies...; filter \"QA*\" and add the three.",
+              "action": "Add a job \"QA Run\". Open its Run tab and press Add Assemblies...; filter \"QA*\" and add the three.",
               "expected": "The dialog closes and the Run tab lists the three with what they need together."
             },
             {
               "action": "Press Reserve All.",
-              "expected": "All three are reserved; the batch says Reserved."
+              "expected": "All three are reserved; the job says Reserved."
             },
             {
               "action": "Press Build All... and give a location.",
@@ -1111,15 +1175,15 @@
         },
         {
           "key": "FI-ASM-006",
-          "title": "A batch that is short reserves nothing",
+          "title": "A job that is short reserves nothing",
           "priority": "Medium",
           "area": "Desktop and phone",
-          "preconditions": "A batch of two assemblies; stock for the first only.",
+          "preconditions": "A job of two assemblies; stock for the first only.",
           "notes": "",
           "steps": [
             {
               "action": "Press Reserve All.",
-              "expected": "Refused, naming the assembly that is short: \"... Nothing was reserved for the batch.\""
+              "expected": "Refused, naming the assembly that is short: \"... Nothing was reserved for the job.\""
             },
             {
               "action": "Open the first assembly.",
@@ -1141,7 +1205,102 @@
             },
             {
               "action": "Clone the reserved assembly.",
-              "expected": "The clone is Planned, in no batch, with nothing reserved."
+              "expected": "The clone is Planned, in no job, with nothing reserved."
+            }
+          ]
+        },
+        {
+          "key": "FI-ASM-008",
+          "tags": ["smoke"],
+          "title": "A job template says which assemblies a job has",
+          "priority": "High",
+          "area": "Desktop and phone",
+          "preconditions": "Assembly templates \"QA Hook plate\" and \"QA Lid plate\".",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Add a job template \"QA Weekly\". Edit it and, on its Assemblies tab, press Add Assembly...",
+              "expected": "The assembly templates are offered, each with what it makes."
+            },
+            {
+              "action": "Choose QA Hook plate and leave Pieces in each empty.",
+              "expected": "OK stays off: \"Say how many pieces each assembly is of.\""
+            },
+            {
+              "action": "Type 8 pieces and 2 assemblies; OK.",
+              "expected": "The line is listed: 8 pieces in each, 2 assemblies, 16 pieces in all."
+            },
+            {
+              "action": "Add QA Lid plate with 4 pieces and nothing for how many.",
+              "expected": "Listed as 1 assembly, 4 pieces in all."
+            },
+            {
+              "action": "Press Add Assembly... again.",
+              "expected": "QA Hook plate and QA Lid plate are not offered a second time on the desktop; on the phone choosing one again is refused with \"This job template has ... already\"."
+            },
+            {
+              "action": "Edit the line of QA Lid plate.",
+              "expected": "Its two numbers and notes can be changed; the assembly template cannot."
+            }
+          ]
+        },
+        {
+          "key": "FI-ASM-009",
+          "title": "Make a Job makes a job with its assemblies planned",
+          "priority": "High",
+          "area": "Desktop and phone",
+          "preconditions": "The job template QA Weekly of FI-ASM-008, not being edited.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Press Make a Job... on its form (phone: Make a Job on its page).",
+              "expected": "A dialog says what is made and asks for the name of the job; the name may be left empty."
+            },
+            {
+              "action": "Leave the name empty and press Make a Job.",
+              "expected": "A job \"QA Weekly <today's date>\" is made and shown, and the status bar (phone: the message) says: \"The job ... was made, with 3 assemblies: QA Hook plate (1 of 2), QA Hook plate (2 of 2), QA Lid plate.\""
+            },
+            {
+              "action": "Open the job's Run tab.",
+              "expected": "Three assemblies, each Planned, of 8, 8 and 4 pieces, with what they need together."
+            },
+            {
+              "action": "Go back to the job template and make another job, this time named \"QA Week 42\".",
+              "expected": "A second job with that name; the template still has its two lines."
+            },
+            {
+              "action": "Make a third without a name on the same day.",
+              "expected": "It is called \"QA Weekly <date> (2)\"."
+            }
+          ]
+        },
+        {
+          "key": "FI-ASM-010",
+          "title": "A job template that cannot be made into a job makes nothing",
+          "priority": "Medium",
+          "area": "Desktop and phone",
+          "preconditions": "A job template without lines, and one with a line.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Press Make a Job... for the template without lines and confirm.",
+              "expected": "Refused in the dialog: \"... says no assemblies yet: add the assemblies a job of it has first. Nothing was made.\" The dialog stays open."
+            },
+            {
+              "action": "Cancel. Look at Jobs.",
+              "expected": "No job was made."
+            },
+            {
+              "action": "Start editing the other template.",
+              "expected": "Make a Job... is not there while the form is being edited."
+            },
+            {
+              "action": "Delete an assembly template that the other job template has a line of.",
+              "expected": "The question says that it will be taken out of 1 job template; afterwards the line is gone."
+            },
+            {
+              "action": "Delete a job template of which a job was made.",
+              "expected": "The question says that its list is deleted and that the jobs made from it stay; the job is still there."
             }
           ]
         }
@@ -1149,7 +1308,7 @@
     },
     {
       "name": "Machines and scheduling",
-      "description": "Machines, their status, what a job asks of them, machine time, the schedule.",
+      "description": "Machines, their status, what an assembly asks of them, machine time, the schedule.",
       "cases": [
         {
           "key": "FI-MACH-001",
@@ -1176,7 +1335,7 @@
         },
         {
           "key": "FI-MACH-002",
-          "title": "Only a machine that fits can run a job",
+          "title": "Only a machine that fits can run an assembly",
           "priority": "High",
           "area": "Desktop and phone",
           "preconditions": "Two machines with the attribute Nozzle: 0.4 and 0.6. A planned assembly.",
@@ -1198,7 +1357,7 @@
         },
         {
           "key": "FI-MACH-003",
-          "title": "Machine time is part of what a job cost",
+          "title": "Machine time is part of what an assembly cost",
           "priority": "Medium",
           "area": "Desktop and phone",
           "preconditions": "A machine with an hourly rate of 10.00, put down for an assembly.",
@@ -1220,7 +1379,7 @@
         },
         {
           "key": "FI-MACH-004",
-          "title": "Schedule two jobs on one machine",
+          "title": "Schedule two assemblies on one machine",
           "priority": "High",
           "area": "Desktop and phone",
           "preconditions": "Two assemblies, each with the same machine put down for 4 hours.",
@@ -1232,7 +1391,7 @@
             },
             {
               "action": "Schedule the second on the same machine at 10:00.",
-              "expected": "Refused: the machine is busy then, with the job and its times."
+              "expected": "Refused: the machine is busy then, with the assembly and its times."
             },
             {
               "action": "Press Next Free Time for the second and schedule it.",
@@ -1240,7 +1399,7 @@
             },
             {
               "action": "Open Data > Machine Schedule...",
-              "expected": "Both jobs are listed by start under the machine."
+              "expected": "Both assemblies are listed by start under the machine."
             }
           ]
         },
@@ -1285,6 +1444,66 @@
             {
               "action": "Open a project file that was only saved, not sliced.",
               "expected": "It says the file was not sliced and to export the sliced file."
+            }
+          ]
+        },
+        {
+          "key": "FI-MACH-007",
+          "title": "A machine's attributes are filed under groups",
+          "priority": "Medium",
+          "area": "Desktop and phone",
+          "preconditions": "A machine with two attributes.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Edit the machine and edit one of its attributes: type \"Extruder\" into Group.",
+              "expected": "Stored; the list's Group column says Extruder."
+            },
+            {
+              "action": "Edit the other attribute and open the Group box.",
+              "expected": "Extruder is offered. Choose it."
+            },
+            {
+              "action": "Open Lists > Machine Attribute Groups (phone: Groups and Categories).",
+              "expected": "Extruder is there, made by typing its name."
+            },
+            {
+              "action": "Empty the Group of one attribute and save.",
+              "expected": "It is listed under no group, before the others."
+            },
+            {
+              "action": "Delete the group Extruder.",
+              "expected": "The question says how many attributes are left without a group; they stay, under none."
+            }
+          ]
+        },
+        {
+          "key": "FI-MACH-008",
+          "title": "A sliced file brings the plates' pictures",
+          "priority": "Medium",
+          "area": "Desktop",
+          "preconditions": "A sliced export of a slicer of the Orca family (.gcode.3mf) with two plates, and an STL file of one of the models.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Choose File > Import Sliced File... and the file.",
+              "expected": "Each plate's row shows the picture the slicer drew of it, on white."
+            },
+            {
+              "action": "Select a plate and press Picture from STL...; choose the STL file.",
+              "expected": "The row's picture is the model, drawn solid and shaded; a note says which file it was drawn from."
+            },
+            {
+              "action": "Press Picture from STL... and choose a file that is no model.",
+              "expected": "Said in the dialog; the plate keeps the picture it had."
+            },
+            {
+              "action": "Import the plates.",
+              "expected": "Each template is listed with its picture as its icon, and so is each part the import added."
+            },
+            {
+              "action": "Open one of the templates.",
+              "expected": "The picture is at the top of its form; a click opens its pictures."
             }
           ]
         }
@@ -1446,6 +1665,74 @@
             {
               "action": "Confirm.",
               "expected": "The list says what was planned; \"Being made\" shows the quantity and the part is no longer to make."
+            }
+          ]
+        },
+        {
+          "key": "FI-ORD-008",
+          "title": "What a customer sends back is a return with a credit note",
+          "priority": "High",
+          "area": "Desktop and phone",
+          "preconditions": "A customer order of which 5 of a product were shipped at 4.00 each.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "On the order's Stock tab press Return... (phone: Return on the Stock page).",
+              "expected": "The shipment's lines are listed with how many were shipped; nothing is filled in, and Back into stock is ticked."
+            },
+            {
+              "action": "Press Return without filling anything in.",
+              "expected": "Said in the dialog; nothing is written down."
+            },
+            {
+              "action": "Type 6 for the line.",
+              "expected": "Refused: only 5 of that shipment can still come back."
+            },
+            {
+              "action": "Type 2, a reason and a place, and confirm.",
+              "expected": "\"2 pieces came back under credit note CN-...; all of them are back in stock.\""
+            },
+            {
+              "action": "Open the product's Inventory tab and its History.",
+              "expected": "A new lot of 2 at that place, without a cost; a line \"returned\"."
+            },
+            {
+              "action": "Look at the order.",
+              "expected": "Still Shipped, and its line still says 5 shipped."
+            },
+            {
+              "action": "Press Print... > Credit Note... (desktop).",
+              "expected": "The credit note: its number, the invoice it credits, 2 at 4.00, \"Credited: 8.00\", the reason."
+            }
+          ]
+        },
+        {
+          "key": "FI-ORD-009",
+          "title": "Returned goods that are not put back, and no more than went",
+          "priority": "Medium",
+          "area": "Desktop and phone",
+          "preconditions": "The order of FI-ORD-008, of which 2 of 5 came back.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Press Return... again.",
+              "expected": "The line says 2 came back before."
+            },
+            {
+              "action": "Type 1, untick Back into stock (phone: switch it off) and confirm.",
+              "expected": "A second credit note with the next number; the sentence says that it was not put back into stock."
+            },
+            {
+              "action": "Open the product's stock.",
+              "expected": "Unchanged: no new lot."
+            },
+            {
+              "action": "Return the remaining 2, then press Return... once more.",
+              "expected": "Nothing is left to return, and that is said."
+            },
+            {
+              "action": "Open Data > Product Money... > Sales for this year.",
+              "expected": "What came back is taken off the year's sales, and the sentence says how many pieces."
             }
           ]
         }
@@ -1615,12 +1902,72 @@
               "expected": "The product is gone; the open order's Product Lines no longer has it, the received order still lists its line."
             }
           ]
+        },
+        {
+          "key": "FI-BUY-007",
+          "title": "A delivery that was received by mistake is taken back",
+          "priority": "High",
+          "area": "Desktop and phone",
+          "preconditions": "A placed purchase order of 100 bolts; 40 received into a place by mistake, nothing of them used.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "On the Receiving tab press Deliveries... (phone: Deliveries).",
+              "expected": "The delivery is listed: when, by whom, \"40 QA Bolt\"."
+            },
+            {
+              "action": "Select it and press Take Back...",
+              "expected": "\"Take this delivery back?\" with what will leave the stock; Cancel is the default."
+            },
+            {
+              "action": "Cancel.",
+              "expected": "Nothing changes."
+            },
+            {
+              "action": "Press Take Back... again and confirm.",
+              "expected": "The server's sentence stands under the list, and the row says who took it back."
+            },
+            {
+              "action": "Look at the bolts' stock and its history.",
+              "expected": "The lot of 40 is gone; a line \"removed\" with the note that the delivery was taken back."
+            },
+            {
+              "action": "Look at the order.",
+              "expected": "Received 0, outstanding 100, status Ordered."
+            },
+            {
+              "action": "Select the delivery again.",
+              "expected": "Take Back... is off: it was taken back already."
+            }
+          ]
+        },
+        {
+          "key": "FI-BUY-008",
+          "title": "A delivery whose stock is no longer there cannot be taken back",
+          "priority": "Medium",
+          "area": "Desktop",
+          "preconditions": "A placed purchase order; a delivery of 60 nuts of which 10 were used since.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open Deliveries...",
+              "expected": "The row says \"Cannot be taken back\" and why: only 50 of the 60 are still in their lot."
+            },
+            {
+              "action": "Select it.",
+              "expected": "Take Back... is off."
+            },
+            {
+              "action": "Reserve the lot of another delivery for an assembly and open Deliveries... again.",
+              "expected": "That delivery cannot be taken back either: its stock is reserved. Release it first."
+            }
+          ]
         }
       ]
     },
     {
       "name": "Waste",
-      "description": "Kinds of waste, what a job wasted, the waste report.",
+      "description": "Kinds of waste, what an assembly wasted, the waste report.",
       "cases": [
         {
           "key": "FI-WASTE-001",
@@ -1647,23 +1994,27 @@
         },
         {
           "key": "FI-WASTE-002",
-          "title": "A batch's figure takes precedence over its assemblies'",
+          "title": "A job's Waste and Machines tabs show what its assemblies have",
           "priority": "Low",
           "area": "Desktop",
-          "preconditions": "A batch of two assemblies, each with waste of the same kind.",
+          "preconditions": "A job of two assemblies, each with a machine put down and with waste of the same kind.",
           "notes": "",
           "steps": [
             {
-              "action": "Open the batch's Waste tab.",
-              "expected": "One row \"added up from 2 assemblies\"."
+              "action": "Open the job's Waste tab.",
+              "expected": "One row for the kind, \"added up from 2 assemblies\", with the two quantities added. There is nothing to add, edit or delete: waste is put down for each assembly."
             },
             {
-              "action": "Edit that row and store it.",
-              "expected": "It becomes the batch's own figure; the assemblies' rows say \"superseded by the batch\"."
+              "action": "Open the job's Machines tab.",
+              "expected": "The assemblies' machines, each with whose it is in the From column. There is nothing to add."
+            },
+            {
+              "action": "Change the waste of one of the assemblies and open the job's Waste tab again.",
+              "expected": "The sum follows."
             },
             {
               "action": "Open Data > Waste Report... for this year.",
-              "expected": "The kind shows the batch's figure for this month, not the sum of all three."
+              "expected": "The kind shows the sum of the two assemblies' waste for this month."
             }
           ]
         }
@@ -1866,7 +2217,7 @@
     },
     {
       "name": "Several records at once",
-      "description": "Multi-selection: delete, parts into a template, assemblies into a batch.",
+      "description": "Multi-selection: delete, parts into a template, assemblies into a job.",
       "cases": [
         {
           "key": "FI-MULTI-001",
@@ -1933,22 +2284,22 @@
         },
         {
           "key": "FI-MULTI-004",
-          "title": "Selected assemblies become a batch",
+          "title": "Selected assemblies become a job",
           "priority": "High",
           "area": "Desktop",
-          "preconditions": "Three planned assemblies that are in no batch.",
+          "preconditions": "Three planned assemblies that are in no job.",
           "notes": "",
           "steps": [
             {
-              "action": "In the Assemblies list select two and choose New Batch of Selected...; type a name and press Make Batch.",
-              "expected": "The browser shows the new batch; its Run tab lists the two."
+              "action": "In the Assemblies list select two and choose New Job of Selected...; type a name and press Make Job.",
+              "expected": "The browser shows the new job; its Run tab lists the two."
             },
             {
-              "action": "Select one of those two and the third; choose New Batch of Selected... and a name.",
-              "expected": "Refused in the dialog: one is in another batch. No batch was made - check the Assembly Batches list."
+              "action": "Select one of those two and the third; choose New Job of Selected... and a name.",
+              "expected": "Refused in the dialog: one is in another job. No job was made - check the Jobs list."
             },
             {
-              "action": "Select the third alone and choose Add Selected to a Batch...; pick the batch.",
+              "action": "Select the third alone and choose Add Selected to a Job...; pick the job.",
               "expected": "It is added."
             }
           ]
@@ -2003,23 +2354,27 @@
         },
         {
           "key": "FI-MULTI-007",
-          "title": "A new batch takes all of the selected assemblies or none",
+          "title": "A new job takes all of the selected assemblies or none",
           "priority": "High",
           "area": "Desktop",
-          "preconditions": "Two planned assemblies that fit together, and a third that requires another value of a machine attribute (Nozzle = 0.2 where the others ask 0.4).",
+          "preconditions": "Two planned assemblies that require different values of a machine attribute (Nozzle = 0.4 and Nozzle = 0.2), and one assembly that is built.",
           "notes": "",
           "steps": [
             {
-              "action": "Select all three and choose New Batch of Selected....",
-              "expected": "It is refused with a sentence that names the assembly that does not fit and why."
+              "action": "Select the two planned assemblies and choose New Job of Selected...; type a name and press Make Job.",
+              "expected": "A job with both is made, although they need different machines: nothing is asked of a job as a whole."
             },
             {
-              "action": "Look at the list of batches and at the three assemblies.",
-              "expected": "No new batch was left behind, and none of the assemblies is in a batch."
+              "action": "Open the job's Required Attributes tab.",
+              "expected": "A row for each value - Nozzle = 0.4 and Nozzle = 0.2 - each saying which assembly asks it. There is nothing to add."
             },
             {
-              "action": "Select only the two that fit and try again.",
-              "expected": "A batch with the two is made."
+              "action": "Select one of the two and the built assembly; choose New Job of Selected... and a name.",
+              "expected": "Refused in the dialog with the assembly that cannot go in and why."
+            },
+            {
+              "action": "Look at the list of jobs and at the assemblies.",
+              "expected": "No new job was left behind, and the first job still has its two assemblies."
             }
           ]
         },
@@ -2038,6 +2393,32 @@
             {
               "action": "Open the template.",
               "expected": "A is there once, with the quantity it had; B and C with 1."
+            }
+          ]
+        },
+        {
+          "key": "FI-MULTI-009",
+          "title": "A long Delete Selected question fits the screen",
+          "priority": "High",
+          "area": "Desktop",
+          "preconditions": "Fourteen parts that each have stock. A small screen - a laptop of 1366 x 768, or Windows scaled to 175%.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Select the fourteen parts and press Del.",
+              "expected": "The question's title bar and both buttons are on the screen. The list of what goes along scrolls inside the box."
+            },
+            {
+              "action": "Scroll to the end of the text.",
+              "expected": "It ends with \"This cannot be undone.\"; Cancel is the default button."
+            },
+            {
+              "action": "Press Cancel.",
+              "expected": "Nothing is deleted."
+            },
+            {
+              "action": "Press Del again and Delete All of It.",
+              "expected": "All fourteen are deleted, with their stock."
             }
           ]
         }
@@ -2173,6 +2554,70 @@
             {
               "action": "Switch both on, with the keyboard open in a value box.",
               "expected": "The boxes and the Change button are still reachable; nothing is hidden under the keyboard for good."
+            }
+          ]
+        },
+        {
+          "key": "FI-PHONE-007",
+          "title": "Themes on the phone",
+          "priority": "Medium",
+          "area": "Phone",
+          "preconditions": "A phone with the app.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open the menu of the first page and choose Theme.",
+              "expected": "As the phone is set, Light and Dark to choose from."
+            },
+            {
+              "action": "Choose Dark, then Light.",
+              "expected": "The app changes at once."
+            },
+            {
+              "action": "Press New Theme, name it \"QA Theme\" and add it.",
+              "expected": "It is chosen, and its colors are listed."
+            },
+            {
+              "action": "Change the background by typing a color, e.g. #203040.",
+              "expected": "The app takes it at once; what is no color is said on the page."
+            },
+            {
+              "action": "Under Colors of choose \"List: Parts\", switch Background on and pick a color. Open Parts, then Products.",
+              "expected": "The parts' list has that color; the products' list has not."
+            },
+            {
+              "action": "Close the app and open it again.",
+              "expected": "The theme is still in force."
+            },
+            {
+              "action": "Delete This Theme.",
+              "expected": "Asked first; the app then looks as the phone is set."
+            }
+          ]
+        },
+        {
+          "key": "FI-PHONE-008",
+          "title": "No dialog is taller than the screen",
+          "priority": "High",
+          "area": "Phone",
+          "preconditions": "A phone, held upright and on its side. A list with many records.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "In Parts select eight records and press Delete.",
+              "expected": "The question fits the screen; its text scrolls, and Cancel and Delete are in sight."
+            },
+            {
+              "action": "Turn the phone on its side with the question open.",
+              "expected": "The question is as tall as the screen allows; the buttons are still in sight."
+            },
+            {
+              "action": "Open a product's Inventory, press Make and tap into the number so that the keyboard opens.",
+              "expected": "The dialog's fields can be scrolled to; its buttons can be reached."
+            },
+            {
+              "action": "Open a job template and press Make a Job.",
+              "expected": "The dialog fits, with its field and both buttons."
             }
           ]
         }
@@ -2358,6 +2803,93 @@
               "expected": "No folder with a mangled name (the share's name without its backslashes) was made there."
             }
           ]
+        },
+        {
+          "key": "FI-SRV-009",
+          "tags": ["smoke"],
+          "title": "An app remembers its servers and switches between them",
+          "priority": "High",
+          "area": "Desktop and phone",
+          "preconditions": "Two servers that the app was connected to - a second server of this PC will do (FI-SRV-011).",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Choose Server > Servers... (phone: Servers in the menu of the first page).",
+              "expected": "Both are listed under the names they say; the one in use says \"(connected)\"."
+            },
+            {
+              "action": "Select the other and press Switch to This Server (phone: tap it).",
+              "expected": "The app works with that server: its records, its name in the window's title (phone: on the first page). It logs in with what is saved or asks."
+            },
+            {
+              "action": "Start editing a record, type something, and switch back without saving (desktop).",
+              "expected": "\"Switch to ... without saving?\" with Cancel as the default; Cancel leaves everything as it was."
+            },
+            {
+              "action": "Select the server that is not in use and press Forget...",
+              "expected": "Asked first, saying that the server itself is not touched; it is gone from the list."
+            },
+            {
+              "action": "Select the one in use.",
+              "expected": "Forget... is off."
+            }
+          ]
+        },
+        {
+          "key": "FI-SRV-010",
+          "title": "A server has a name for people",
+          "priority": "Medium",
+          "area": "Server",
+          "preconditions": "An installed server, and an app connected to it.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "In the server's settings program press Rename... and type \"Workshop, Hall 2\".",
+              "expected": "Stored, comma and all; a name that is none keeps OK off with the reason."
+            },
+            {
+              "action": "Restart the server and start the app.",
+              "expected": "The window's title says \"Factory Inventory - Workshop, Hall 2\"; About says the name with the address."
+            },
+            {
+              "action": "Empty the name and restart.",
+              "expected": "The server is called after its PC."
+            }
+          ]
+        },
+        {
+          "key": "FI-SRV-011",
+          "title": "A second server on one PC",
+          "priority": "Medium",
+          "area": "Server",
+          "preconditions": "A PC with the server installed and running.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "In the settings program choose Advanced... > Add Another Server...",
+              "expected": "A name is asked for and a free port is filled in; the dialog says that the new server has its own license."
+            },
+            {
+              "action": "Type the name and the port of the first server.",
+              "expected": "Both are refused: the name and the port are taken, with a free port named."
+            },
+            {
+              "action": "Type a new name and keep the port offered; confirm.",
+              "expected": "A second service runs; the window now has a box at its top to choose the server."
+            },
+            {
+              "action": "Make a login for the new server and connect an app to it.",
+              "expected": "It has its own, empty database and is the Free edition; the first server's data is untouched."
+            },
+            {
+              "action": "Choose the second server and press Remove This Server...",
+              "expected": "Asked first, Cancel the default; afterwards its service is gone and its data folder is kept."
+            },
+            {
+              "action": "Restart the PC.",
+              "expected": "The first server is running again by itself."
+            }
+          ]
         }
       ]
     },
@@ -2451,6 +2983,122 @@
             {
               "action": "Save, then open Lists > Categories.",
               "expected": "The category is listed."
+            }
+          ]
+        },
+        {
+          "key": "FI-UI-005",
+          "title": "A record's first picture is its icon",
+          "priority": "Medium",
+          "area": "Desktop and phone",
+          "preconditions": "A part with two pictures, a part with none, and an assembly whose template has a picture.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open Parts.",
+              "expected": "The first part has its oldest picture beside its name; the other has an empty place, so that the names stand under each other."
+            },
+            {
+              "action": "Open the first part.",
+              "expected": "The picture is at the top of the form (phone: of the page); a click or tap opens its pictures."
+            },
+            {
+              "action": "Delete its first picture and go back to the list.",
+              "expected": "The icon is now the other picture."
+            },
+            {
+              "action": "Open Assemblies.",
+              "expected": "The assembly shows its template's picture."
+            },
+            {
+              "action": "Open Customers.",
+              "expected": "No room is kept for icons: customers have no pictures."
+            }
+          ]
+        },
+        {
+          "key": "FI-UI-006",
+          "title": "A theme gives the tree, the form and each table's list colors of their own",
+          "priority": "Medium",
+          "area": "Desktop",
+          "preconditions": "The desktop app.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Choose View > Theme > Customize... and make a theme.",
+              "expected": "Thirteen colors for the whole app."
+            },
+            {
+              "action": "Under Colors of choose \"Tree of tables\", tick Background and pick a color.",
+              "expected": "The box says that this area has colors of its own."
+            },
+            {
+              "action": "Choose \"List: Parts\" and give it another background; OK.",
+              "expected": "The tree and the parts' list have their colors; the list of products has the theme's own."
+            },
+            {
+              "action": "Choose \"Lists (every table)\" and give it a background.",
+              "expected": "Every list has it except the parts', which keeps its own."
+            },
+            {
+              "action": "Export the theme, and import the file on a phone (FI-PHONE-007).",
+              "expected": "The phone has the theme, with the colors of the lists."
+            },
+            {
+              "action": "Go back to View > Theme > System.",
+              "expected": "Every area looks as the rest again."
+            }
+          ]
+        },
+        {
+          "key": "FI-UI-007",
+          "title": "Leaving a record that is being edited asks first",
+          "priority": "High",
+          "area": "Desktop",
+          "preconditions": "A manufacturer.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Select it in the tree, press Edit and change its name. Click another record in the tree.",
+              "expected": "\"Leave the manufacturer without saving?\" with Cancel as the default; the tree goes back to the manufacturer."
+            },
+            {
+              "action": "Press Cancel.",
+              "expected": "The form is still being edited, with what was typed."
+            },
+            {
+              "action": "Click another record again and press Discard Changes.",
+              "expected": "The other record is shown; the status bar says that the changes were not saved."
+            },
+            {
+              "action": "Press Edit on a record, change nothing, and click another.",
+              "expected": "Nothing is asked."
+            }
+          ]
+        },
+        {
+          "key": "FI-UI-008",
+          "title": "Dialogs fit a small screen",
+          "priority": "Medium",
+          "area": "Desktop",
+          "preconditions": "A small screen - 1366 x 768, or Windows scaled to 175% - for the desktop app and for the server's settings program.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open the larger dialogs one after the other: Add Part, Server > Users and Groups..., Data > Make List..., Data > Product Money..., File > Import Sliced File...",
+              "expected": "Each is wholly on the screen: its title bar can be reached and its buttons are in sight."
+            },
+            {
+              "action": "In a dialog that is too tall for the screen, look at its fields.",
+              "expected": "They scroll; the buttons stay where they are."
+            },
+            {
+              "action": "Make such a dialog refuse something - a name that is taken.",
+              "expected": "The line that says why is in sight, above the buttons."
+            },
+            {
+              "action": "In the server's settings program open Advanced... and Uninstall the Server...",
+              "expected": "Both fit the screen."
             }
           ]
         }
