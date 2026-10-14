@@ -1,9 +1,9 @@
 {
   "project": "Factory Inventory",
-  "version": "2026-10-12.2",
+  "version": "2026-10-13.1",
   "components": ["Server", "Desktop app", "Phone app"],
   "issueUrl": "https://github.com/Brute-Squad/FactoryInventory/issues/%1",
-  "description": "Manual test scripts for Factory Inventory 0.2.1 Beta: the server, the desktop app and the phone app.",
+  "description": "Manual test scripts for Factory Inventory 0.2.2 Beta: the server, the desktop app and the phone app.",
   "suites": [
     {
       "name": "Installation and setup",
@@ -279,6 +279,32 @@
             {
               "action": "Start an app of the old version against the new server.",
               "expected": "It says that the server is newer than the app; update the app."
+            }
+          ]
+        },
+        {
+          "key": "FI-SETUP-011",
+          "title": "The download page and the guide",
+          "priority": "Low",
+          "area": "Installer",
+          "preconditions": "The web folder and the guide's import file of one release (build\\website, build\\wiki).",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open the download page.",
+              "expected": "It offers the three packages, with their checksums."
+            },
+            {
+              "action": "Check each download against checksums.txt.",
+              "expected": "They match."
+            },
+            {
+              "action": "Follow the page's link to the user guide.",
+              "expected": "It leads to the guide's first page once the guide is imported; every link inside the guide leads to a page."
+            },
+            {
+              "action": "Open the guide's pages on parts and on machines.",
+              "expected": "They describe the screens of this release: the Suppliers list with its Preferred tick, the places picked for stock, shared waste types."
             }
           ]
         }
@@ -621,6 +647,168 @@
             {
               "action": "Clear the search.",
               "expected": "The first page is back."
+            }
+          ]
+        },
+        {
+          "key": "FI-PARTS-009",
+          "title": "A part's suppliers, and the one it prefers",
+          "priority": "High",
+          "area": "Desktop and phone",
+          "preconditions": "A part, and two suppliers. Logged in with the right to change parts.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open the part and look at its form.",
+              "expected": "There is no supplier field on the form; the Suppliers tab lists whom it is bought from."
+            },
+            {
+              "action": "Press Edit, then Add Supplier... on the Suppliers tab; choose the first supplier and give it a quantity per pack and a price per pack.",
+              "expected": "The supplier is on the list with what one unit costs there, and says Preferred: the first on the list is."
+            },
+            {
+              "action": "Add the second supplier, leaving its pack and price empty.",
+              "expected": "It is on the list, not preferred; the part's own pack and price are meant for it."
+            },
+            {
+              "action": "Select the second supplier, press Edit Supplier..., tick Preferred and press OK.",
+              "expected": "The second supplier says Preferred; the first no longer does."
+            },
+            {
+              "action": "Save the part, change its name and save again.",
+              "expected": "The second supplier is still the preferred one."
+            },
+            {
+              "action": "Take the preferred supplier off the list.",
+              "expected": "The question says the supplier itself stays. The one that is left is preferred."
+            },
+            {
+              "action": "On the phone: open the part, Suppliers, a supplier, and switch Preferred on.",
+              "expected": "The list says \"... (preferred)\" for it."
+            }
+          ]
+        },
+        {
+          "key": "FI-PARTS-010",
+          "title": "How a part is bought: packs",
+          "priority": "Medium",
+          "area": "Desktop and phone",
+          "preconditions": "A part measured in grams, with a preferred supplier that sells it in packs of 750 for 16.50.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open the part's dialog (Update Part...) and type a quantity per pack of 1000 and a price per pack of 20.00.",
+              "expected": "A line under the fields says what one gram then costs: 0.02."
+            },
+            {
+              "action": "Type a quantity per pack that is no number.",
+              "expected": "The reason is said and OK stays off."
+            },
+            {
+              "action": "On the part's Inventory tab press Add Stock....",
+              "expected": "The quantity and the unit cost start as the preferred supplier sells the part: 750 at 0.022."
+            },
+            {
+              "action": "Type another quantity and save.",
+              "expected": "What was typed is stored: the pack is only what the dialog starts from."
+            },
+            {
+              "action": "Add the part to a purchase order whose supplier is another one of its suppliers.",
+              "expected": "The line starts as that supplier sells the part - or, where it says nothing, as the part's own pack."
+            },
+            {
+              "action": "Look at the part's Average cost.",
+              "expected": "It says the average of the lots that have a cost; a part without stock says that it is not known yet."
+            }
+          ]
+        },
+        {
+          "key": "FI-PARTS-011",
+          "title": "New Inventory Item from the list of parts",
+          "priority": "Medium",
+          "area": "Desktop and phone",
+          "preconditions": "Parts in the list. Logged in with the right to add stock.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Right-click a part in the Parts list and choose New Inventory Item....",
+              "expected": "A dialog called after the part opens, with the four locations under their own names. The part's form is not in editing."
+            },
+            {
+              "action": "Press Save with nothing typed.",
+              "expected": "The dialog says what is missing and stays open."
+            },
+            {
+              "action": "Type a place, a quantity and a cost, and save.",
+              "expected": "The status bar says what was added. The part's Inventory tab and the Part Inventory table have the lot."
+            },
+            {
+              "action": "Select two parts and right-click.",
+              "expected": "New Inventory Item is not offered for several."
+            },
+            {
+              "action": "Log in as a user who may not add stock and right-click a part.",
+              "expected": "The entry is greyed out."
+            },
+            {
+              "action": "On the phone: open the part and tap New Inventory Item, without pressing Edit.",
+              "expected": "The page for a new lot opens and can be filled in and saved."
+            }
+          ]
+        },
+        {
+          "key": "FI-PARTS-012",
+          "title": "Places are picked where stock is added",
+          "priority": "Medium",
+          "area": "Desktop and phone",
+          "preconditions": "Stock in at least two places, for example \"Plant 2 / Stores\" and \"Plant 2 / Bench\".",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open Add Stock... (or New Inventory Item...) for a part and open the first location's list.",
+              "expected": "It offers the places the stock is in already, each once; nothing is chosen."
+            },
+            {
+              "action": "Pick one, and type a new place into the second field.",
+              "expected": "Both are taken as they are."
+            },
+            {
+              "action": "Save, and open the dialog again for another part.",
+              "expected": "The new place is offered now."
+            },
+            {
+              "action": "Delete the only lot that was in a place and open the dialog again.",
+              "expected": "That place is no longer offered."
+            },
+            {
+              "action": "On the phone: open a new lot's page and tap Pick beside a place.",
+              "expected": "A list of the places in use opens; tapping one fills the field in. A field with no places yet has no Pick."
+            }
+          ]
+        },
+        {
+          "key": "FI-PARTS-013",
+          "title": "A part's unit is picked",
+          "priority": "Low",
+          "area": "Desktop and phone",
+          "preconditions": "Parts with the units \"each\", \"g\" and one of your own, for example \"spool\".",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open a part's form, press Edit and open the Unit box.",
+              "expected": "\"(none)\" first, then the usual units - each, g, kg, ml, l, mm, cm, m, pair, box - then \"spool\"; each once."
+            },
+            {
+              "action": "Press New... beside the box, type a unit that is in no list and press Add.",
+              "expected": "It is in the box, chosen; Save stores it with the part."
+            },
+            {
+              "action": "Press New... and type \"G\".",
+              "expected": "The \"g\" that is there is chosen; no second spelling is added."
+            },
+            {
+              "action": "Open the part's dialog (Update Part...).",
+              "expected": "Its Unit box offers the same units and can also be typed into."
             }
           ]
         }
@@ -1683,6 +1871,74 @@
               "expected": "The parts that are there are not taken by themselves: each object says \"New part: ... (2)\", and the part there is can be chosen in its box instead."
             }
           ]
+        },
+        {
+          "key": "FI-MACH-010",
+          "title": "A machine's model, location and manufacturer are picked",
+          "priority": "Medium",
+          "area": "Desktop and phone",
+          "preconditions": "Two machines of one model in one location. Logged in with the right to change machines and to add manufacturers.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open a machine's form and press Edit.",
+              "expected": "Model and Location are drop-down lists of what the machines already say, with \"(none)\" first and a New... button beside each. Manufacturer has a New... button like Machine group."
+            },
+            {
+              "action": "Press New... beside Location, type a location that is not in the list and press Add.",
+              "expected": "It is in the box, chosen. After Save the machine has it, and the other machines' forms offer it."
+            },
+            {
+              "action": "Press New... beside Model and type the existing model in other capitals.",
+              "expected": "The model that is there is chosen as it is written; none is added."
+            },
+            {
+              "action": "Press New... beside Manufacturer and add one.",
+              "expected": "The manufacturer is added and chosen; the machine's form stays in editing with what was typed."
+            },
+            {
+              "action": "Press Cancel on the form.",
+              "expected": "The app asks before the changes are dropped."
+            },
+            {
+              "action": "Open the dialog that adds a machine.",
+              "expected": "It has the same lists and buttons."
+            },
+            {
+              "action": "On the phone: open a machine, tap Edit, and tap New beside Model.",
+              "expected": "A dialog asks for the model; Add is off until something is typed; the model is chosen and saved with the machine."
+            }
+          ]
+        },
+        {
+          "key": "FI-MACH-011",
+          "title": "Estimates count pieces, and say each part",
+          "priority": "Medium",
+          "area": "Desktop and phone",
+          "preconditions": "An assembly template whose build makes several pieces of two parts (its Makes list), with a machine model and its times.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open Machine Options... on the template's Cost tab.",
+              "expected": "The number asked for is of builds: \"Builds in one run (N pieces each)\"."
+            },
+            {
+              "action": "Set two builds.",
+              "expected": "The sentence says the builds with their pieces; the rows follow."
+            },
+            {
+              "action": "Look at the Per piece column.",
+              "expected": "It says each part's own figure - \"Bracket 1.10, Hook 0.55\" - shared out by the material where every line of Makes says it, else by pieces."
+            },
+            {
+              "action": "Build an assembly of the template and open Machine Options... again.",
+              "expected": "Under the estimate the built assembly says its pieces and what a piece of each part came to."
+            },
+            {
+              "action": "On the phone: open the template's Cost page, then Machine Options.",
+              "expected": "The same label, sentence and per-piece figures."
+            }
+          ]
         }
       ]
     },
@@ -2139,6 +2395,32 @@
               "expected": "That delivery cannot be taken back either: its stock is reserved. Release it first."
             }
           ]
+        },
+        {
+          "key": "FI-BUY-009",
+          "title": "Reordering in whole packs, from the preferred supplier",
+          "priority": "Medium",
+          "area": "Desktop and phone",
+          "preconditions": "A part with a reorder level, below it by 1,200 g, whose preferred supplier sells it in packs of 1,000 g.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open Data > Reorder List....",
+              "expected": "The part is listed with what is to order."
+            },
+            {
+              "action": "Press Create Purchase Orders... and confirm.",
+              "expected": "An open order for the preferred supplier is made with a line of 2,000 g: two whole packs, at the pack's cost where nothing else says one."
+            },
+            {
+              "action": "Tick Preferred for another supplier of the part and create orders for another part of that supplier.",
+              "expected": "The orders go to whoever is preferred now."
+            },
+            {
+              "action": "Take every supplier off a part and open the list.",
+              "expected": "It says that no supplier is said for the part; no order is made for it."
+            }
+          ]
         }
       ]
     },
@@ -2192,6 +2474,96 @@
             {
               "action": "Open Data > Waste Report... for this year.",
               "expected": "The kind shows the sum of the two assemblies' waste for this month."
+            }
+          ]
+        },
+        {
+          "key": "FI-WASTE-003",
+          "title": "A waste type shared by several machine models",
+          "priority": "High",
+          "area": "Desktop and phone",
+          "preconditions": "Machines of two models, for example two printers. A waste type of one of the models.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open the waste type and look at Machine models.",
+              "expected": "It says the one model. Choose... is off until Edit is pressed."
+            },
+            {
+              "action": "Press Edit, then Choose..., tick the second model and press OK.",
+              "expected": "The line says both models; Save is enabled."
+            },
+            {
+              "action": "Save, and look at the Waste Types list.",
+              "expected": "The Machine models column says both."
+            },
+            {
+              "action": "Put the waste type down for an assembly that runs on a machine of the second model.",
+              "expected": "It is offered there, with its models in its name."
+            },
+            {
+              "action": "Add a second waste type of the same name for one of the two models.",
+              "expected": "Refused: that model already has a waste type of the name."
+            },
+            {
+              "action": "Edit the first, untick every model and save.",
+              "expected": "The line and the list say \"Any\": it is of any machine."
+            },
+            {
+              "action": "On the phone: open the waste type, tap Edit, Choose, tick a model, OK and Save.",
+              "expected": "The page says the models; with none ticked it says \"Any\"."
+            }
+          ]
+        },
+        {
+          "key": "FI-WASTE-004",
+          "title": "The waste report says which model wasted it",
+          "priority": "Medium",
+          "area": "Desktop and phone",
+          "preconditions": "A waste type of two models. Two assemblies, each run on a machine of one of the models, each with waste of that type put down this year.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open Data > Waste Report....",
+              "expected": "The first column is Machine models. The waste type has a row per model, each with what its assembly put down."
+            },
+            {
+              "action": "Put the same waste down for an assembly that has no machine.",
+              "expected": "That entry is on a row for both models together."
+            },
+            {
+              "action": "Look at a waste type of any machine that was put down for an assembly with one machine.",
+              "expected": "Its row says that machine's model."
+            },
+            {
+              "action": "On the phone: open Waste Report.",
+              "expected": "The same rows; a kind nobody's model settles says \"Any\"."
+            }
+          ]
+        },
+        {
+          "key": "FI-WASTE-005",
+          "title": "Expected waste against what was put down",
+          "priority": "Medium",
+          "area": "Desktop and phone",
+          "preconditions": "An assembly template with expected waste, and an assembly built from it with waste put down - more of one kind than expected.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open Machine Options... on the template's Cost tab.",
+              "expected": "Under what was built a sentence sets the waste against the plan, kind by kind: \"Support: 36 g expected, 41.5 g put down (5.5 g more)\"."
+            },
+            {
+              "action": "Look at a kind the template expects and nobody put down.",
+              "expected": "It says \"none put down\"."
+            },
+            {
+              "action": "Open a template nothing was built from.",
+              "expected": "There is no such sentence."
+            },
+            {
+              "action": "On the phone: Machine Options of the same template.",
+              "expected": "The same sentence under what was built."
             }
           ]
         }
@@ -2797,6 +3169,36 @@
               "expected": "The dialog fits, with its field and both buttons."
             }
           ]
+        },
+        {
+          "key": "FI-PHONE-009",
+          "title": "Stock at the shelf",
+          "priority": "Medium",
+          "area": "Phone",
+          "preconditions": "The phone logged in with the right to add stock. A part with stock in a few places.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open the part's page without tapping Edit.",
+              "expected": "New Inventory Item is there, under Inventory."
+            },
+            {
+              "action": "Tap it.",
+              "expected": "A new lot's page opens, starting as the part is bought."
+            },
+            {
+              "action": "Tap Pick beside the first place and choose one.",
+              "expected": "The field has the place."
+            },
+            {
+              "action": "Type a quantity and save.",
+              "expected": "The page closes; the part's Inventory lists the lot."
+            },
+            {
+              "action": "Log in as a user who may not add stock.",
+              "expected": "New Inventory Item is not there."
+            }
+          ]
         }
       ]
     },
@@ -3065,6 +3467,32 @@
             {
               "action": "Restart the PC.",
               "expected": "The first server is running again by itself."
+            }
+          ]
+        },
+        {
+          "key": "FI-SRV-012",
+          "title": "An older server is said, not guessed",
+          "priority": "High",
+          "area": "Desktop and phone",
+          "preconditions": "A server of the release before, and the apps of the build under test.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Start the desktop app against the older server.",
+              "expected": "A box says that the server is older than the app, and what to do. Help > About says the server's version and when it was built."
+            },
+            {
+              "action": "Open the phone app against it.",
+              "expected": "The first page and About say the same sentence."
+            },
+            {
+              "action": "Install the server of the build under test and connect again.",
+              "expected": "Nothing is said any more. About says the new version number - no two releases carry the same one."
+            },
+            {
+              "action": "Open a waste type that is of several models with an app of the release before, change its name and save.",
+              "expected": "The server refuses it and says to update the app; the waste type keeps its models."
             }
           ]
         }
