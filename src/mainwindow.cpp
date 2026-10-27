@@ -43,6 +43,8 @@ namespace
 {
     const int kKindRole = Qt::UserRole;
     const int kIdRole = Qt::UserRole + 1;
+    // A project's: the version of the test scripts it was last brought up to date from.
+    const int kScriptsRole = Qt::UserRole + 2;
 
     // How a case went the last time, as a mark before its key.
     QString marked(const QaCase &testCase)
@@ -178,6 +180,10 @@ MainWindow::MainWindow(QaDatabase *database, QWidget *parent)
     centralLayout->addWidget(m_scriptsBar);
     centralLayout->addWidget(splitter, 1);
     setCentralWidget(central);
+    // Which version of the test scripts the project has - to see at a glance that the newest are in.
+    m_scriptsVersion = new QLabel(this);
+    m_scriptsVersion->setObjectName(QStringLiteral("scriptsVersion"));
+    statusBar()->addPermanentWidget(m_scriptsVersion);
     resize(1280, 800);
     splitter->setSizes({ 420, 860 });
 
@@ -611,6 +617,7 @@ void MainWindow::fillTree(Kind selectKind, qint64 selectId)
         auto *projectItem = new QTreeWidgetItem(m_tree, { project.name });
         projectItem->setData(0, kKindRole, ProjectItem);
         projectItem->setData(0, kIdRole, project.id);
+        projectItem->setData(0, kScriptsRole, project.scriptsVersion);
         projectItem->setToolTip(0, project.scriptsVersion.isEmpty() ? project.description
                                    : project.description + (project.description.isEmpty() ? QString() : QStringLiteral("\n"))
                                          + QStringLiteral("Test scripts: version %1").arg(project.scriptsVersion));
@@ -752,6 +759,12 @@ void MainWindow::updateActions()
     m_clone->setEnabled(suite);
     m_export->setEnabled(project);
     m_print->setEnabled(project && !casesToPrint().isEmpty());
+
+    QTreeWidgetItem *projectItem = project ? find(ProjectItem, currentId(ProjectItem)) : nullptr;
+    const QString version = projectItem ? projectItem->data(0, kScriptsRole).toString() : QString();
+    m_scriptsVersion->setText(!projectItem ? QString()
+                              : version.isEmpty() ? QStringLiteral("%1: test scripts of no version").arg(projectItem->text(0))
+                                                  : QStringLiteral("%1: test scripts %2").arg(projectItem->text(0), version));
 }
 
 bool MainWindow::selectCase(const QString &key)

@@ -7,7 +7,9 @@
 //                                       printed). With --db: into that database.
 //                                       With --copy-first: a copy of the database is
 //                                       made first (qabackup.h), and nothing is
-//                                       imported if it cannot be.
+//                                       imported if it cannot be. With --keep-copies <n>
+//                                       the newest n of those copies are kept, the
+//                                       older ones deleted.
 //   QATest --where                      print where the database is and why, and exit
 //   QATest --config <file>              read that configuration file instead of the
 //                                       program's own
@@ -72,6 +74,9 @@ int main(int argc, char *argv[])
     const QCommandLineOption importOption(QStringLiteral("import"), QStringLiteral("Read a file of test scripts into the database, and exit."), QStringLiteral("json"));
     const QCommandLineOption copyFirstOption(QStringLiteral("copy-first"),
                                              QStringLiteral("With --import: copy the database into its folder of copies first, and import nothing if that fails."));
+    const QCommandLineOption keepCopiesOption(QStringLiteral("keep-copies"),
+                                              QStringLiteral("With --copy-first: keep the newest n copies made before an import, and delete the older ones."),
+                                              QStringLiteral("n"));
     const QCommandLineOption whereOption(QStringLiteral("where"), QStringLiteral("Print where the database is, and exit."));
     // (For the build's own check: make the window, show nothing, exit.)
     const QCommandLineOption smokeOption(QStringLiteral("smoke"), QStringLiteral("Make the window and exit: a check that the program starts."));
@@ -90,7 +95,7 @@ int main(int argc, char *argv[])
                                                QStringLiteral("path"));
     const QCommandLineOption scriptsStatusOption(QStringLiteral("scripts-status"),
                                                  QStringLiteral("Print whether the test scripts that came with the program are newer than the database's, and exit."));
-    parser.addOptions({ dbOption, importOption, copyFirstOption, whereOption, configOption, writeConfigOption, writeUserConfigOption, setDatabaseOption, existingOption,
+    parser.addOptions({ dbOption, importOption, copyFirstOption, keepCopiesOption, whereOption, configOption, writeConfigOption, writeUserConfigOption, setDatabaseOption, existingOption,
                         networkNameOption, scriptsStatusOption, smokeOption });
     parser.process(app);
 
@@ -253,14 +258,25 @@ int main(int argc, char *argv[])
     {
         if (parser.isSet(copyFirstOption))
         {
+            bool number = true;
+            const int keep = parser.isSet(keepCopiesOption) ? parser.value(keepCopiesOption).toInt(&number) : 0;
+            if (!number || keep < 0)
+            {
+                err << "--keep-copies wants a number of copies, not \"" << parser.value(keepCopiesOption) << "\". Nothing was imported." << Qt::endl;
+                return 1;
+            }
             // Beside the database that was named; else where the configuration keeps the copies.
-            const QaBackupOutcome copy = QaBackup::beforeImport(database, QDateTime::currentDateTime(), parser.isSet(dbOption) ? QString() : config.backupFolder);
+            const QaBackupOutcome copy = QaBackup::beforeImport(database, QDateTime::currentDateTime(), parser.isSet(dbOption) ? QString() : config.backupFolder, keep);
             if (!copy.made)
             {
                 err << copy.problem << " Nothing was imported." << Qt::endl;
                 return 1;
             }
             out << "copied the database to " << QDir::toNativeSeparators(copy.file) << Qt::endl;
+            if (copy.removed > 0)
+                out << (copy.removed == 1 ? QStringLiteral("deleted the oldest copy from before an import")
+                                          : QStringLiteral("deleted the %1 oldest copies from before an import").arg(copy.removed))
+                    << QStringLiteral(" (the newest %1 are kept)").arg(keep) << Qt::endl;
         }
         QString message;
         const bool ok = MainWindow::importFile(database, QDir::current().absoluteFilePath(parser.value(importOption)), message);

@@ -83,6 +83,13 @@ if %errorlevel% neq 0 (
 )
 endlocal
 if exist build\smoke.sqlite del /q build\smoke.sqlite
+rem And what installer\publish.ps1 does to a shared folder - in folders of its own, with an
+rem installer that is a stand-in: the program above imports, nothing else is touched.
+powershell -NoProfile -ExecutionPolicy Bypass -File installer\test-publish.ps1
+if %errorlevel% neq 0 (
+    echo The checks of installer\publish.ps1 FAILED.
+    exit /b 1
+)
 rem Its configuration file, to say where the database is: made once, never written over.
 dist\QATest.exe --write-config >nul
 echo The program is dist\QATest.exe

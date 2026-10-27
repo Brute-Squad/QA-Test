@@ -23,7 +23,20 @@ QString QaBackup::beforeImportNameFor(const QString &databasePath, const QDateTi
     return QStringLiteral("%1-before-import-%2.sqlite").arg(QFileInfo(databasePath).completeBaseName(), when.toString(QStringLiteral("yyyy-MM-dd-HHmmss")));
 }
 
-QaBackupOutcome QaBackup::beforeImport(QaDatabase &database, const QDateTime &when, const QString &folder)
+QStringList QaBackup::importCopies(const QString &databasePath, const QString &folder)
+{
+    // Only what is called as such a copy of this database is: nothing else in the folder is ever touched.
+    const QRegularExpression name(QStringLiteral("^%1-before-import-\\d{4}-\\d{2}-\\d{2}-\\d{6}\\.sqlite$").arg(QRegularExpression::escape(QFileInfo(databasePath).completeBaseName())),
+                                  QRegularExpression::CaseInsensitiveOption);
+    const QDir dir(folderFor(databasePath, folder));
+    QStringList found;
+    for (const QString &file : dir.entryList(QDir::Files, QDir::Name | QDir::Reversed))
+        if (name.match(file).hasMatch())
+            found << dir.absoluteFilePath(file);
+    return found;
+}
+
+QaBackupOutcome QaBackup::beforeImport(QaDatabase &database, const QDateTime &when, const QString &folder, int keep)
 {
     QaBackupOutcome outcome;
     const QString path = database.path();
@@ -61,6 +74,15 @@ QaBackupOutcome QaBackup::beforeImport(QaDatabase &database, const QDateTime &wh
     }
     outcome.made = true;
     outcome.file = file;
+
+    // The oldest beyond those to keep go - once the new one is there.
+    if (keep > 0)
+    {
+        const QStringList there = importCopies(path, folder);
+        for (int i = keep; i < there.size(); ++i)
+            if (QFile::remove(there.at(i)))
+                ++outcome.removed;
+    }
     return outcome;
 }
 
