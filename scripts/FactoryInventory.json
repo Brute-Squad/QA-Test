@@ -1,6 +1,6 @@
 {
   "project": "Factory Inventory",
-  "version": "2026-10-13.1",
+  "version": "2026-10-26.1",
   "components": ["Server", "Desktop app", "Phone app"],
   "issueUrl": "https://github.com/Brute-Squad/FactoryInventory/issues/%1",
   "description": "Manual test scripts for Factory Inventory 0.2.2 Beta: the server, the desktop app and the phone app.",
@@ -305,6 +305,28 @@
             {
               "action": "Open the guide's pages on parts and on machines.",
               "expected": "They describe the screens of this release: the Suppliers list with its Preferred tick, the places picked for stock, shared waste types."
+            }
+          ]
+        },
+        {
+          "key": "FI-SETUP-012",
+          "title": "The installers and the download page are Heyote Software's",
+          "priority": "Low",
+          "area": "Installer",
+          "preconditions": "The two installers and the web folder of the build under test (build\\installers, build\\website). A PC where the server and the desktop app were installed from them.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open Windows Settings > Apps > Installed apps and find Factory Inventory Server and Factory Inventory.",
+              "expected": "Both name Heyote Software as their publisher."
+            },
+            {
+              "action": "Open the download page (index.html of the web folder, or the page on the site).",
+              "expected": "The browser's tab, the name at the top and the footer say Heyote Software (\"from Heyote Software, Irving, Texas\"); nothing says Edna's Eclectic Emporium."
+            },
+            {
+              "action": "Open the guide's import file (factory-inventory-guide.xml) in a text editor and look at its first <link> line.",
+              "expected": "It is https://heyotesoftware.com."
             }
           ]
         }
@@ -809,6 +831,92 @@
             {
               "action": "Open the part's dialog (Update Part...).",
               "expected": "Its Unit box offers the same units and can also be typed into."
+            }
+          ]
+        },
+        {
+          "key": "FI-PARTS-014",
+          "title": "Every desktop dialog that asks where stock goes offers the places in use",
+          "priority": "Medium",
+          "area": "Desktop",
+          "preconditions": "Stock of parts and of products in a few places, for example a lot at Facility \"Plant 2\", Shelf \"C\" and one at Facility \"Dock\". A purchase order that is placed, an assembly that is reserved, a job with a reserved assembly, a product made of parts there is enough of, a customer order with something shipped.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "On a part's Inventory tab, with the part being edited, press Add Stock... and open the Facility box.",
+              "expected": "Each of the four places is a box that can be picked from or typed into. Facility offers \"Plant 2\" and \"Dock\", each once; Shelf offers \"C\". Nothing is chosen at first."
+            },
+            {
+              "action": "On the purchase order's Receiving tab press Receive... and open the first place box.",
+              "expected": "It offers the same places; nothing is chosen."
+            },
+            {
+              "action": "On the assembly's Build tab press Build..., and on the job's Run tab Build All...; open the first place box of each.",
+              "expected": "Both offer the same places."
+            },
+            {
+              "action": "On the product's Inventory tab press Make... and Add Stock...; under Data > Make List... select a row and press Make....",
+              "expected": "Each of the three dialogs offers the same places."
+            },
+            {
+              "action": "On the customer order's Stock tab press Return....",
+              "expected": "Its place boxes offer the same places - and are off for a user who may not change products."
+            },
+            {
+              "action": "In one of the dialogs type a new place, \"QA Shelf X\", in the Shelf box and finish the step.",
+              "expected": "It is stored as typed. The next dialog that asks for a place offers \"QA Shelf X\" in its Shelf box."
+            }
+          ]
+        },
+        {
+          "key": "FI-PARTS-015",
+          "title": "The Part Inventory form picks its places",
+          "priority": "Low",
+          "area": "Desktop and phone",
+          "preconditions": "Stock in a few places, as in FI-PARTS-014.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "In the desktop app open the Part Inventory table in the tree, select a stock row and press Edit.",
+              "expected": "Each of the four places is a drop-down - \"(none)\", then the places the stock is in for that field - with the row's own place chosen and a New... button beside it."
+            },
+            {
+              "action": "Press New... beside Shelf, type \"QA Shelf Y\" and press Add; then Save.",
+              "expected": "\"QA Shelf Y\" is chosen and stored with the row; the list's Shelf column says it."
+            },
+            {
+              "action": "Press New... beside Shelf again and type \"qa shelf y\".",
+              "expected": "The \"QA Shelf Y\" that is there is chosen; no second spelling is added."
+            },
+            {
+              "action": "On the phone open Part Inventory, tap the same row and tap Edit.",
+              "expected": "The four places are boxes to pick from, each with New beside it, offering the same places."
+            }
+          ]
+        },
+        {
+          "key": "FI-PARTS-016",
+          "title": "Whom a part prefers is shown in the Parts list",
+          "priority": "Low",
+          "area": "Desktop and phone",
+          "preconditions": "A part \"QA Bolt\" with two suppliers on its Suppliers tab, \"QA Supply A\" preferred.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Show the Parts list.",
+              "expected": "It has a column \"Preferred supplier\"; QA Bolt's row says \"QA Supply A\". A part that prefers nobody says nothing there."
+            },
+            {
+              "action": "Open QA Bolt's form and press Edit.",
+              "expected": "\"Preferred supplier\" is a line that says QA Supply A and cannot be changed there; there is no box to choose a supplier in."
+            },
+            {
+              "action": "On the Suppliers tab edit QA Supply B, tick Preferred and press OK; then show the Parts list again.",
+              "expected": "The column and the form say QA Supply B."
+            },
+            {
+              "action": "On the phone open QA Bolt.",
+              "expected": "Its page says Preferred supplier: QA Supply B, as a line that is not typed into."
             }
           ]
         }
@@ -3197,6 +3305,36 @@
             {
               "action": "Log in as a user who may not add stock.",
               "expected": "New Inventory Item is not there."
+            }
+          ]
+        },
+        {
+          "key": "FI-PHONE-010",
+          "title": "Pick a place on every phone page that asks where stock goes",
+          "priority": "Medium",
+          "area": "Phone",
+          "preconditions": "Stock in a few places, as in FI-PARTS-014; the same purchase order, assembly, job, product and customer order. The phone logged in as a user who may change stock.",
+          "notes": "",
+          "steps": [
+            {
+              "action": "Open a part's Inventory, tap a lot (with the part being edited) or New Inventory Item on the part's page.",
+              "expected": "A place field that has places in use has Pick at its right; a field whose places no stock is in has none."
+            },
+            {
+              "action": "Tap Pick in the Facility field.",
+              "expected": "A list of the places in use for that field opens - \"Plant 2\", \"Dock\" - with Cancel."
+            },
+            {
+              "action": "Tap \"Dock\".",
+              "expected": "The list closes and the field says Dock."
+            },
+            {
+              "action": "Open the purchase order's Receiving, tap Receive; then the assembly's Build, the job's Run with Build All, the product's Inventory with Make and Add Stock, the Make List's Make, and the customer order's Return.",
+              "expected": "Each place field on each of them has Pick where places are in use, and picking fills the field in as above."
+            },
+            {
+              "action": "Type a new place into a field instead and finish the step.",
+              "expected": "It is stored as typed; the next page offers it under Pick."
             }
           ]
         }
