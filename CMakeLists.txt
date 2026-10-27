@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(QATest VERSION 1.6 LANGUAGES CXX)
+project(QATest VERSION 1.7 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -49,6 +49,8 @@ add_executable(QATest WIN32
 )
 # (PrintSupport: a document goes to a printer - report.cpp.)
 target_link_libraries(QATest PRIVATE QaData Qt6::Gui Qt6::Widgets Qt6::PrintSupport)
+# (Its version is the project's: one number, which the installer and publish.ps1 read too.)
+target_compile_definitions(QATest PRIVATE QATEST_VERSION="${PROJECT_VERSION}")
 # (The .exe is made again when only the icon changed.)
 set_source_files_properties(src/qatest.rc PROPERTIES OBJECT_DEPENDS "${CMAKE_SOURCE_DIR}/icons/qatest.ico")
 

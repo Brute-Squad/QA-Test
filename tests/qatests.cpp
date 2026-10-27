@@ -813,6 +813,28 @@ namespace
         check(outcome.made && outcome.file == folder.filePath("elsewhere/qatest-2026-10-09.sqlite") && QaBackup::copies(file, folder.filePath("elsewhere")).size() == 1
               && QaBackup::copies(file).size() == 3, "another folder for the copies: " + outcome.problem);
 
+        // ---- a copy before an import
+        const QDateTime moment(day, QTime(8, 41, 12));
+        check(QaBackup::beforeImportNameFor(file, moment) == "qatest-before-import-2026-10-09-084112.sqlite", "what the copy before an import is called");
+        outcome = QaBackup::beforeImport(pat, moment);
+        check(outcome.made && outcome.problem.isEmpty() && outcome.file == backups + "/qatest-before-import-2026-10-09-084112.sqlite" && QFileInfo::exists(outcome.file),
+              "a copy before an import goes beside the day's copies: " + outcome.problem);
+        check(other.open(outcome.file, error) && other.projects(projects, error) && projects.size() == 1, "and is the database as it was: " + error);
+        other.close();
+        const QDateTime copied = QFileInfo(outcome.file).lastModified();
+        outcome = QaBackup::beforeImport(pat, moment);
+        check(!outcome.made && outcome.problem.endsWith("is there already.") && QFileInfo(backups + "/qatest-before-import-2026-10-09-084112.sqlite").lastModified() == copied,
+              "one is never written over: " + outcome.problem);
+        check(QaBackup::copies(file).size() == 3, "it is no day's copy: it is not counted among them");
+        outcome = QaBackup::daily(pat, day.addDays(4), 3);
+        check(outcome.removed == 0 && QFileInfo::exists(backups + "/qatest-before-import-2026-10-09-084112.sqlite") && QaBackup::copies(file).size() == 3,
+              "and is never deleted with the oldest of them");
+        outcome = QaBackup::beforeImport(pat, moment.addSecs(1), folder.filePath("elsewhere"));
+        check(outcome.made && outcome.file == folder.filePath("elsewhere/qatest-before-import-2026-10-09-084113.sqlite"), "another folder for it: " + outcome.problem);
+        outcome = QaBackup::beforeImport(memory, moment);
+        check(!outcome.made && !outcome.problem.isEmpty(), "none of a database in memory: " + outcome.problem);
+        check(QDir(backups).entryList({ "*.tmp" }).isEmpty(), "and nothing half made is left");
+
         // A database that is not sound is not copied over the good copies.
         pat.close();
         lou.close();

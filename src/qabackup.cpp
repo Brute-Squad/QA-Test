@@ -18,6 +18,52 @@ QString QaBackup::fileNameFor(const QString &databasePath, const QDate &day)
     return QStringLiteral("%1-%2.sqlite").arg(QFileInfo(databasePath).completeBaseName(), day.toString(QStringLiteral("yyyy-MM-dd")));
 }
 
+QString QaBackup::beforeImportNameFor(const QString &databasePath, const QDateTime &when)
+{
+    return QStringLiteral("%1-before-import-%2.sqlite").arg(QFileInfo(databasePath).completeBaseName(), when.toString(QStringLiteral("yyyy-MM-dd-HHmmss")));
+}
+
+QaBackupOutcome QaBackup::beforeImport(QaDatabase &database, const QDateTime &when, const QString &folder)
+{
+    QaBackupOutcome outcome;
+    const QString path = database.path();
+    if (path.isEmpty() || path == QLatin1String(":memory:"))
+    {
+        outcome.problem = QStringLiteral("There is no database file to copy.");
+        return outcome;
+    }
+    QString problem;
+    if (!database.sound(problem))
+    {
+        outcome.problem = QStringLiteral("The database is not sound (%1): nothing was copied, and nothing is to be imported into it.").arg(problem);
+        return outcome;
+    }
+    const QDir dir(folderFor(path, folder));
+    const QString file = dir.absoluteFilePath(beforeImportNameFor(path, when));
+    if (QFileInfo::exists(file))
+    {
+        outcome.problem = QStringLiteral("%1 is there already.").arg(QDir::toNativeSeparators(file));
+        return outcome;
+    }
+    // Under another name first, as a day's copy is: a copy that is half written is never taken for one.
+    const QString making = dir.absoluteFilePath(QStringLiteral("making-%1.tmp").arg(QUuid::createUuid().toString(QUuid::WithoutBraces)));
+    if (!database.copyTo(making, problem))
+    {
+        QFile::remove(making);
+        outcome.problem = QStringLiteral("No copy could be made in %1: %2").arg(QDir::toNativeSeparators(dir.absolutePath()), problem);
+        return outcome;
+    }
+    if (!QFile::rename(making, file))
+    {
+        QFile::remove(making);
+        outcome.problem = QStringLiteral("%1 could not be written.").arg(QDir::toNativeSeparators(file));
+        return outcome;
+    }
+    outcome.made = true;
+    outcome.file = file;
+    return outcome;
+}
+
 QStringList QaBackup::copies(const QString &databasePath, const QString &folder)
 {
     // Only what is called as a copy of this database is: nothing else in the folder is ever touched.

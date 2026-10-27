@@ -5,6 +5,9 @@
 //   QATest --import <scripts.json>      read a file of test scripts into the database
 //                                       and exit: 0 = imported, 1 = not (the reason is
 //                                       printed). With --db: into that database.
+//                                       With --copy-first: a copy of the database is
+//                                       made first (qabackup.h), and nothing is
+//                                       imported if it cannot be.
 //   QATest --where                      print where the database is and why, and exit
 //   QATest --config <file>              read that configuration file instead of the
 //                                       program's own
@@ -53,7 +56,7 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
     QCoreApplication::setOrganizationName(QStringLiteral("QATest"));
     QCoreApplication::setApplicationName(QStringLiteral("QATest"));
-    QCoreApplication::setApplicationVersion(QStringLiteral("1.6"));
+    QCoreApplication::setApplicationVersion(QStringLiteral(QATEST_VERSION));
 
     // The icon of every window: the sizes a title bar and a taskbar ask for.
     QIcon icon;
@@ -67,6 +70,8 @@ int main(int argc, char *argv[])
     parser.addVersionOption();
     const QCommandLineOption dbOption(QStringLiteral("db"), QStringLiteral("The database to use (made if it is not there)."), QStringLiteral("file"));
     const QCommandLineOption importOption(QStringLiteral("import"), QStringLiteral("Read a file of test scripts into the database, and exit."), QStringLiteral("json"));
+    const QCommandLineOption copyFirstOption(QStringLiteral("copy-first"),
+                                             QStringLiteral("With --import: copy the database into its folder of copies first, and import nothing if that fails."));
     const QCommandLineOption whereOption(QStringLiteral("where"), QStringLiteral("Print where the database is, and exit."));
     // (For the build's own check: make the window, show nothing, exit.)
     const QCommandLineOption smokeOption(QStringLiteral("smoke"), QStringLiteral("Make the window and exit: a check that the program starts."));
@@ -85,7 +90,7 @@ int main(int argc, char *argv[])
                                                QStringLiteral("path"));
     const QCommandLineOption scriptsStatusOption(QStringLiteral("scripts-status"),
                                                  QStringLiteral("Print whether the test scripts that came with the program are newer than the database's, and exit."));
-    parser.addOptions({ dbOption, importOption, whereOption, configOption, writeConfigOption, writeUserConfigOption, setDatabaseOption, existingOption,
+    parser.addOptions({ dbOption, importOption, copyFirstOption, whereOption, configOption, writeConfigOption, writeUserConfigOption, setDatabaseOption, existingOption,
                         networkNameOption, scriptsStatusOption, smokeOption });
     parser.process(app);
 
@@ -246,6 +251,17 @@ int main(int argc, char *argv[])
 
     if (parser.isSet(importOption))
     {
+        if (parser.isSet(copyFirstOption))
+        {
+            // Beside the database that was named; else where the configuration keeps the copies.
+            const QaBackupOutcome copy = QaBackup::beforeImport(database, QDateTime::currentDateTime(), parser.isSet(dbOption) ? QString() : config.backupFolder);
+            if (!copy.made)
+            {
+                err << copy.problem << " Nothing was imported." << Qt::endl;
+                return 1;
+            }
+            out << "copied the database to " << QDir::toNativeSeparators(copy.file) << Qt::endl;
+        }
         QString message;
         const bool ok = MainWindow::importFile(database, QDir::current().absoluteFilePath(parser.value(importOption)), message);
         (ok ? out : err) << message << Qt::endl;
