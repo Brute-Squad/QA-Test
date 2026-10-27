@@ -833,6 +833,27 @@ namespace
         check(outcome.made && outcome.file == folder.filePath("elsewhere/qatest-before-import-2026-10-09-084113.sqlite"), "another folder for it: " + outcome.problem);
         outcome = QaBackup::beforeImport(memory, moment);
         check(!outcome.made && !outcome.problem.isEmpty(), "none of a database in memory: " + outcome.problem);
+        // How many of them are kept: the newest, once the new one is there - and nothing else goes.
+        for (const QString &name : { QString("qatest-before-import-old.sqlite"), QString("other-before-import-2026-01-01-000000.sqlite") })
+        {
+            QFile foreign(backups + "/" + name);
+            if (foreign.open(QIODevice::WriteOnly))
+                foreign.write("not ours");
+        }
+        check(QaBackup::importCopies(file).size() == 1 && QaBackup::importCopies(file).at(0).endsWith("qatest-before-import-2026-10-09-084112.sqlite"),
+              "the copies before an import there are: " + QaBackup::importCopies(file).join(" "));
+        for (int later = 1; later <= 3; ++later)
+        {
+            outcome = QaBackup::beforeImport(pat, moment.addSecs(60 * later));
+            check(outcome.made && outcome.removed == 0, QStringLiteral("without a number to keep, none goes (%1)").arg(later));
+        }
+        outcome = QaBackup::beforeImport(pat, moment.addSecs(600), QString(), 2);
+        const QStringList kept = QaBackup::importCopies(file);
+        check(outcome.made && outcome.removed == 3 && kept.size() == 2 && kept.at(0).endsWith("qatest-before-import-2026-10-09-085112.sqlite")
+              && kept.at(1).endsWith("qatest-before-import-2026-10-09-084412.sqlite"), "keep 2: the new one and the newest before it stay: " + kept.join(" "));
+        check(QFileInfo::exists(backups + "/qatest-before-import-old.sqlite") && QFileInfo::exists(backups + "/other-before-import-2026-01-01-000000.sqlite")
+              && QaBackup::copies(file).size() == 3 && QaBackup::importCopies(file, folder.filePath("elsewhere")).size() == 1,
+              "and nothing else: not a file called otherwise, not the day's copies, not those in another folder");
         check(QDir(backups).entryList({ "*.tmp" }).isEmpty(), "and nothing half made is left");
 
         // A database that is not sound is not copied over the good copies.
@@ -2235,6 +2256,8 @@ namespace
         if (!bar || !text || !show || !later)
             return;
         check(tree->topLevelItem(0)->toolTip(0).endsWith("Test scripts: version 2026-09-01"), "a project says which scripts it has: " + tree->topLevelItem(0)->toolTip(0));
+        auto *version = window.findChild<QLabel *>("scriptsVersion");
+        check(version && version->text() == "Sample: test scripts 2026-09-01", "and the status bar says it of the project that is selected: " + (version ? version->text() : QString()));
         window.setBundledScripts(bundled);
         check(!bar->isHidden() && text->text() == notice && !show->isHidden(), "the window says it, and offers to show what would change");
 
@@ -2268,6 +2291,7 @@ namespace
         again->accept();
         check(db.projects(projects, error) && projects.at(0).scriptsVersion == "2026-10-09" && bar->isHidden() && window.tree()->topLevelItem(0)->childCount() == 3
               && window.tree()->topLevelItem(0)->toolTip(0).endsWith("Test scripts: version 2026-10-09"), "Import reads the file: the database is up to date, and the line goes");
+        check(version && version->text() == "Sample: test scripts 2026-10-09", "and the status bar has the new version: " + (version ? version->text() : QString()));
         QList<QaSuite> suites;
         QList<QaCase> parts;
         db.suites(projects.at(0).id, suites, error);

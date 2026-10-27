@@ -155,7 +155,7 @@ Everything here is for a database that several people have open at once - `\\nas
 
 The first program that opens the database on a day makes that day's copy: `backups\qatest-2026-10-09.sqlite` in the database's folder, complete in itself, made while others go on working. The newest 14 are kept and older ones deleted; only files called like that are ever touched there. A copy that is there is never written over. **File > Open Backups Folder** shows them.
 
-Before new test scripts are imported into the team's database, a copy of it is made in the same folder: `backups\qatest-before-import-2026-10-27-084112.sqlite` (the day and the time). These copies are never deleted by the program: take away the old ones yourself when you like.
+Before new test scripts are imported into the team's database, a copy of it is made in the same folder: `backups\qatest-before-import-2026-10-27-084112.sqlite` (the day and the time). The newest 10 of these copies are kept and older ones deleted when the next is made (`publish.ps1 -KeepCopies <n>` keeps another number; only files called like that are touched). They are not counted with the daily copies, and those never take them away.
 
 The database is checked when the program starts. One that is damaged is said at once, with the newest copy to go back to, and is not copied - the good copies are what matters then, and stay.
 
@@ -175,7 +175,7 @@ Folder=D:\QA backups
 
 Test scripts change: cases are added, reworded, moved. A database - a team's, on a shared drive - was filled from the scripts of one day, and the next version of the program brings newer ones.
 
-**A file of scripts says its version** (`"version": "2026-10-09"` - a date, or a number like `1.10`; raise it whenever the file changes), and a project remembers which version it was last brought up to date from. A project's tooltip in the list on the left says it.
+**A file of scripts says its version** (`"version": "2026-10-09"` - a date, or a number like `1.10`; raise it whenever the file changes), and a project remembers which version it was last brought up to date from. The status bar says it for the project that is selected - *"Factory Inventory: test scripts 2026-10-26.1"* - and so does the project's tooltip in the list on the left, so whether the newest scripts are in is seen at a glance.
 
 **When the program brings newer scripts than the database has**, a line at the top of the window says so, with how much they would bring: *"The test scripts that came with this program are newer than this database's: Factory Inventory - 3 new and 5 changed test cases (version 2026-10-09; the database has 2026-09-01)."* **Show What Would Change...** opens the preview; **Not Now** puts it off until the program is started again. The other way round - a database that is newer than the program - is said too: install the newer program on that PC. A database whose cases differ from scripts *of the same version* is left in peace: the team reworded them on purpose. `QATest --scripts-status` prints the same sentence.
 
@@ -247,7 +247,7 @@ makes the installer (as above; `-NoBuild` takes the one that is there) and publi
 2. **The scripts themselves** go into `scripts\` in that folder, as they were imported.
 3. **The installer**, with `README.txt` and `SHA256.txt`; the copy is read back to see that it is whole, and the installers of older versions that it put there before are taken away.
 
-`-NoImport` publishes the installer alone and leaves the database and the scripts there as they are.
+`-NoImport` publishes the installer alone and leaves the database and the scripts there as they are. `-KeepCopies <n>` says how many copies of the database from before an import are kept (10). `-Installer <file>` publishes that file instead and builds nothing, without remembering the folder - what its checks do (below).
 
 **A version is published once.** Testers tell installers apart by their version, so when the folder has an installer of the same version already - or of a newer one - nothing is published: raise the version in `CMakeLists.txt` (`project(QATest VERSION ...)`; the program, its installer and `publish.ps1` all take it from there) and publish again.
 
@@ -256,6 +256,8 @@ makes the installer (as above; `-NoBuild` takes the one that is there) and publi
 ## Tests
 
 `build\QATestTests.exe` (run by `build.bat`; exit code 0 = every check passed). It checks the configuration file (network paths, relative paths, what is wrong with a file, two programs on one database), the database (cases, steps, runs, results, what is refused, what a delete takes along, import and export), reads every file in `scripts\` to see that it can be imported and that each case has steps that say what to expect, and drives the program's own window offscreen: the tree, a case edited and saved, a run made and worked through, its report. And keeping the scripts current: versions compared, what a file would add, change and not have - each kind of difference by name - before anything is read, a case that is as the file says left untouched, what is not in the file deleted only when asked, and the window's line for newer scripts with its preview, Import, Cancel and Not Now. And reporting: an issue's address, the issue of a failure and when it goes, how a project stands - pass rates, open failures by issue, what keeps failing, what never ran - as figures and as the Dashboard's document, a run as CSV, and the Dashboard tab following the runs. And finding and organising: words looked for in every part of a case, tags, a run of a tag, several cases moved, put into a run and deleted together, a case and a suite cloned, and the tree's filters. And getting through a run faster: whose a case is, a run of what failed, the build of each component, files that go with a result and what deleting takes of them, and Run Mode worked through - marked, a note asked for, a file attached, a screenshot pasted, the last case. And what a shared database needs: two programs in one file where the second is told that the first stored the case, a database from an older version, the copy of each day and which are kept, the copy before an import - never written over and never deleted with the daily ones -, a damaged database, a drive letter as the share's name, and the window while the database is away, with somebody else's change, and with File > Use a Shared Database. And test cases on paper: a project, a suite, one case and several as a document - what it says of a case and what it leaves out, the order, the suites' page breaks, with and without room for results - sent to a printer that writes a file, and saved.
+
+**`installer\test-publish.ps1`** (run by `build.bat` once the program is in `dist\`) checks `publish.ps1`: it publishes a stand-in installer into folders of its own under the temporary folder - a database that gets the scripts after a copy, the newest copies kept and nothing else in their folder touched, the older installer taken away, the checksum, the scripts beside it - and sees it refuse the same version again, a newer version, a folder without a database, a file that is no database and keeping no copies, and publish the installer alone with `-NoImport`; the folder `publish.ps1` remembers is left as it was.
 
 **To look at the windows** - which the tests can only read - `QATestTests --pictures <folder>` (with Qt's `bin` on the path) draws them as they look on this PC into PNG files (and test cases as they are printed, also as a PDF): the Test Case, Test Runs and Dashboard tabs, a search, Run Mode, the preview of an import, the line for newer scripts, and the installer's database page at the size the installer gives it. Nothing is shown on the screen, typed or clicked, and the database is one of its own in a temporary folder. Look at them after changing a window: text that is cut off or a column that is squeezed shows there and nowhere else.
 
@@ -276,7 +278,7 @@ makes the installer (as above; `-NoBuild` takes the one that is there) and publi
 | `src/importpreview.*` | What a file of test scripts would change, shown before it is read |
 | `src/main.cpp` | Start-up and the command line |
 | `tests/qatests.cpp` | The tests |
-| `installer/` | The installer: its configuration, its database page, its scripts, `build-installer.ps1` which makes it and `publish.ps1` which puts it on the shared drive |
+| `installer/` | The installer: its configuration, its database page, its scripts, `build-installer.ps1` which makes it `publish.ps1` which puts it on the shared drive, and `test-publish.ps1` which checks that |
 | `icons/` | The icon: the program that draws it, and what it drew |
 | `scripts/FactoryInventory.json` | The test scripts for Factory Inventory |
 | `data/qatest.sqlite` | The database, with those scripts imported |

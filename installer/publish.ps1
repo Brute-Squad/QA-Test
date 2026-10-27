@@ -6,11 +6,15 @@
 #   ... -Database <file>   the team's database, if it is not <folder>\data\qatest.sqlite
 #   ... -NoImport          the installer alone: the database and the scripts are left as they are
 #   ... -NoBuild           the installer that is in installer\out, as it is
+#   ... -KeepCopies <n>    how many copies of the database from before an import are kept (10)
+#   ... -Installer <file>  publish that file as the installer instead - what test-publish.ps1
+#                          does: nothing is built, and the folder is not remembered
 #
 # What it does there:
 #   data\qatest.sqlite                  the test scripts (scripts\*.json) are imported into it -
 #                                       after a copy of it is made beside its daily copies
-#                                       (data\backups\qatest-before-import-<date>-<time>.sqlite);
+#                                       (data\backups\qatest-before-import-<date>-<time>.sqlite;
+#                                       the newest 10 such copies are kept, the older deleted);
 #                                       an import only adds and updates test cases: runs and
 #                                       results are left as they are
 #   scripts\*.json                      the test scripts, as they were imported
@@ -33,7 +37,9 @@ param(
     [string]$To = "",
     [string]$Database = "",
     [switch]$NoImport,
-    [switch]$NoBuild
+    [switch]$NoBuild,
+    [int]$KeepCopies = 10,
+    [string]$Installer = ""
 )
 $ErrorActionPreference = "Stop"
 
@@ -50,7 +56,9 @@ $versionLine = Select-String -Path (Join-Path $repo "CMakeLists.txt") -Pattern '
 if (-not $versionLine) { "The version was not found in CMakeLists.txt."; exit 2 }
 $version = $versionLine.Matches[0].Groups[1].Value
 $name = "QATestTracker-$version-Setup.exe"
-$installer = Join-Path $here "out\$name"
+$trial = $Installer -ne ""
+$installer = if ($trial) { $Installer } else { Join-Path $here "out\$name" }
+if ($KeepCopies -lt 1) { "-KeepCopies wants at least 1: the copy made now is kept. Nothing was published."; exit 2 }
 
 # A version is published once: before anything is built, see what is there.
 foreach ($there in Get-ChildItem -LiteralPath $To -Filter "QATestTracker-*-Setup.exe" -File) {
@@ -74,7 +82,7 @@ if (-not $NoImport) {
     if ($scripts.Count -eq 0) { "There are no test scripts in scripts\*.json. Nothing was published."; exit 2 }
 }
 
-if (-not $NoBuild) {
+if (-not $NoBuild -and -not $trial) {
     & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here "build-installer.ps1")
     if ($LASTEXITCODE -ne 0) { "The installer was not made. Nothing was published."; exit 3 }
 }
@@ -88,7 +96,7 @@ if (-not $NoImport) {
     $first = $true
     foreach ($script in $scripts) {
         $arguments = @("--db", $Database, "--import", $script.FullName)
-        if ($first) { $arguments += "--copy-first" }
+        if ($first) { $arguments += @("--copy-first", "--keep-copies", "$KeepCopies") }
         # (Its answer is read, which also waits for it: it is a program with a window.)
         $ErrorActionPreference = "Continue"
         $said = & $program @arguments 2>&1 | ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.Exception.Message } else { "$_" } } | Where-Object { $_.Trim() -ne "" }
@@ -135,7 +143,7 @@ Get-ChildItem -LiteralPath $To -Filter "QATestTracker-*-Setup.exe" -File | Where
     "took away the older $($_.Name)"
 }
 
-Set-Content -Encoding utf8 -LiteralPath $remembered -Value $To
+if (-not $trial) { Set-Content -Encoding utf8 -LiteralPath $remembered -Value $To }
 "published $name  ($([math]::Round((Get-Item $installer).Length / 1MB, 1)) MB) to $To"
 if ($NoImport) { "  with README.txt and SHA256.txt; the database and the test scripts there were not touched." }
 else { "  with README.txt and SHA256.txt, the test scripts imported into $Database; nothing else there was touched." }

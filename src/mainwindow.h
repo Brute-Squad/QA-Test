@@ -156,6 +156,8 @@ private:
 
     QaDatabase  *m_database = nullptr;
     QTreeWidget *m_tree = nullptr;
+    // The status bar's word on which version of the test scripts the selected project has.
+    QLabel      *m_scriptsVersion = nullptr;
     QTabWidget  *m_tabs = nullptr;
     CasePanel   *m_case = nullptr;
     RunPanel    *m_runs = nullptr;
